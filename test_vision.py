@@ -51,3 +51,4 @@ if __name__ == "__main__":
     expression = vision.analyze_expression(frames)
     print(f"\n=== EXPRESSION ({time.time() - t:.1f}s) ===")
     print(json.dumps(expression, indent=2))
+

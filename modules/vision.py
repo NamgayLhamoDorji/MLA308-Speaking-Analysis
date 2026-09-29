@@ -1,5 +1,5 @@
 """
-modules/vision.py — Member B (Computer Vision) owns this file.
+modules/vision.py 
 
 Contract with main.py (do not change these function names/signatures —
 Member A's pipeline calls exactly these two functions):
@@ -133,7 +133,7 @@ def analyze_posture(frames) -> dict:
 
         dx = r_sh[0] - l_sh[0]
         dy = r_sh[1] - l_sh[1]
-        tilt_angles.append(abs(math.degrees(math.atan2(dy, dx))))
+        tilt_angles.append(math.degrees(math.atan2(abs(dy), abs(dx))))
 
         mid_x = (l_sh[0] + r_sh[0]) / 2
         mid_y = (l_sh[1] + r_sh[1]) / 2
