@@ -30,33 +30,57 @@ OLLAMA_TIMEOUT_S = 180        # first call loads the model into RAM — can be s
 MAX_TRANSCRIPT_CHARS = 6000   # phi3:mini has a small context window
 MIN_WORDS = 20
 
-# Weights come from the rubric research (structure matters most in the
-# public-speaking literature; adjust once the team finalises the rubric).
+# Weights follow the rubric research (see Professional_Speaking_Rubric.docx):
+# organisation and supporting material are the most-cited content criteria in
+# speech-evaluation forms such as the NCA Competent Speaker form.
 WEIGHTS = {"structure": 0.30, "clarity": 0.25, "evidence": 0.20, "relevance": 0.25}
 
-RUBRIC_PROMPT_TEMPLATE = """You are an experienced public-speaking coach evaluating the CONTENT of a spoken presentation.
+# Consistency caps. Small models are generous, so when the model's own
+# yes/no checklist contradicts its rating we trust the checklist.
+CAP_NO_OPEN_AND_CLOSE = 5     # structure can't beat 5 with no opening AND no closing
+CAP_NO_EXAMPLE = 4            # evidence can't beat 4 with no example/fact/number/story
 
-Rate each criterion as an integer from 1 to 10:
-- structure: clear opening that states the topic, logically ordered body, and a closing/takeaway
-- clarity: ideas are easy to follow, precise, and free of rambling
-- evidence: uses concrete examples, facts, numbers, stories or reasoning to support points
-- relevance: stays focused on one main point without off-topic tangents
+RUBRIC_PROMPT_TEMPLATE = """You are a strict but fair public-speaking coach. Score the CONTENT of a spoken presentation (what is said, not how it sounds).
 
-Calibration: typical student speeches score 4-7. Use 9-10 only for exceptional work and 1-3 for very weak work. Do not give every criterion the same number unless it truly fits.
+STEP 1. Answer these checklist questions with true or false:
+- has_opening: does the speaker say what the talk is about near the start?
+- has_closing: does the speaker finish with a conclusion, summary or takeaway?
+- has_example: is there at least one concrete example, fact, number or story?
 
-The transcript below was produced by speech-to-text. IGNORE punctuation, capitalisation, spelling and filler words (um, uh). Judge the ideas only.
+STEP 2. Rate each criterion from 1 to 10 using these anchors (use in-between numbers when it fits):
+structure
+  2 = no clear start or end, ideas in random order
+  5 = either an opening or a closing is missing, order mostly logical
+  8 = topic stated up front, two or more clear points in a logical order, ends with a takeaway
+clarity
+  2 = hard to follow, rambling or vague
+  5 = understandable but wordy, repeats itself, or has unclear parts
+  8 = every point is precise and easy to follow
+evidence
+  2 = only opinions or claims, no support
+  5 = one example or fact, thinly explained
+  8 = several concrete examples, facts, numbers or stories that really support the points
+relevance
+  2 = wanders between unrelated topics
+  5 = one main point but with noticeable tangents
+  8 = everything serves one main point
+
+Calibration: typical student speeches score 4 to 7. Use 9 or 10 only for exceptional work and 1 to 3 for very weak work. Do not give every criterion the same number unless it truly fits.
+
+The transcript was produced by speech-to-text. IGNORE punctuation, capitalisation, spelling, and filler words (um, uh). Judge the ideas only.
 
 Transcript:
 \"\"\"
-{transcript}
+<<TRANSCRIPT>>
 \"\"\"
 
 Respond ONLY with JSON in exactly this shape:
-{{"structure": <int>, "clarity": <int>, "evidence": <int>, "relevance": <int>,
-  "main_point": "<the speaker's main point in one sentence>",
-  "strengths": "<one sentence>",
-  "improvements": "<one or two sentences>",
-  "feedback": "<2-3 sentences of constructive coaching addressed to the speaker as 'you'>"}}
+{"has_opening": <true|false>, "has_closing": <true|false>, "has_example": <true|false>,
+ "structure": <int>, "clarity": <int>, "evidence": <int>, "relevance": <int>,
+ "main_point": "<the speaker's main point in one sentence>",
+ "strengths": "<one sentence>",
+ "improvements": "<one or two sentences>",
+ "feedback": "<2-3 sentences of constructive coaching addressed to the speaker as 'you'>"}
 """
 
 
@@ -77,6 +101,14 @@ def is_ollama_reachable() -> bool:
 
 def _clamp(x, lo, hi):
     return max(lo, min(hi, x))
+
+
+def _as_bool(v):
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, str):
+        return v.strip().lower() in ("true", "yes", "1")
+    return bool(v)
 
 
 def _parse_llm_json(raw: str):
@@ -101,7 +133,16 @@ def _parse_llm_json(raw: str):
             ratings[k] = int(_clamp(round(float(data[k])), 1, 10))
         except (KeyError, TypeError, ValueError):
             return None
+
+    # Consistency caps: trust the model's own checklist over a generous rating
+    checks = {k: _as_bool(data.get(k, True)) for k in ("has_opening", "has_closing", "has_example")}
+    if not checks["has_opening"] and not checks["has_closing"]:
+        ratings["structure"] = min(ratings["structure"], CAP_NO_OPEN_AND_CLOSE)
+    if not checks["has_example"]:
+        ratings["evidence"] = min(ratings["evidence"], CAP_NO_EXAMPLE)
+
     data["_ratings"] = ratings
+    data["_checks"] = checks
     return data
 
 
@@ -113,7 +154,7 @@ def _ask_ollama(prompt: str):
             "prompt": prompt,
             "stream": False,
             "format": "json",                       # forces valid JSON output
-            "options": {"temperature": 0.2, "num_predict": 500},
+            "options": {"temperature": 0.2, "num_predict": 600},
         },
         timeout=OLLAMA_TIMEOUT_S,
     )
@@ -176,7 +217,7 @@ def score_content(transcript: dict) -> dict:
                         "30-60 seconds with a clear opening, a few points, and a closing.",
         }
 
-    prompt = RUBRIC_PROMPT_TEMPLATE.format(transcript=text[:MAX_TRANSCRIPT_CHARS])
+    prompt = RUBRIC_PROMPT_TEMPLATE.replace("<<TRANSCRIPT>>", text[:MAX_TRANSCRIPT_CHARS])
 
     parsed, error = None, None
     for _ in range(2):                              # one retry if the JSON is unusable
@@ -198,6 +239,7 @@ def score_content(transcript: dict) -> dict:
             "details": {
                 "scored_by": f"ollama:{MODEL_NAME}",
                 "criteria_ratings_out_of_10": ratings,
+                "checklist": parsed["_checks"],
                 "weights": WEIGHTS,
                 "main_point": str(parsed.get("main_point", ""))[:300],
                 "strengths": str(parsed.get("strengths", ""))[:300],
