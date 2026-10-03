@@ -1,22 +1,9 @@
-# Member A — backend/integration
 fastapi==0.115.0
 uvicorn[standard]==0.32.0
 python-multipart==0.0.12
 opencv-python==4.10.0.84
-
-# --- Add below as each member's module goes from stub -> real ---
-
-# Member B (computer vision):
-ultralytics==8.3.0          
-YOLOv8/11-Pose
-(face/expression model — pin the exact package once chosen)
-
-# Member C (speech & language):
+ultralytics==8.3.0
+mediapipe==0.10.14
 faster-whisper==1.0.3
-librosa==0.10.2             # optional tone/pitch parameter
-requests==2.32.3            # for calling local LanguageTool + Ollama HTTP APIs
-(LanguageTool itself runs as a separate local server/jar, not a pip package)
-
-
-# Member D (data/frontend, if you add server-side templating later):
-# jinja2==3.1.4
+librosa==0.10.2
+requests==2.32.3

@@ -1,5 +1,5 @@
 """
-modules/content.py — Member C (Speech & Language)
+modules/content.py — Member C (Speech & Language) 
 
 Contract with main.py (unchanged):
 

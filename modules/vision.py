@@ -1,5 +1,5 @@
 """
-modules/vision.py — Member B 
+modules/vision.py — Member B (Computer Vision) 
 
 Contract with main.py (do not change these names/signatures):
 
