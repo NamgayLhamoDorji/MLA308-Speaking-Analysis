@@ -1,0 +1,9 @@
+video,tests,expect_strong,expect_weak,expect_error
+01_good_speaker.mp4,"Strong baseline: centred, level, eye contact, clear points, few fillers",delivery;posture;language,,
+02_slouched_off_centre.mp4,"Slouching or sitting off to one side",,posture,
+03_swaying_pacing.mp4,"Swaying or pacing while talking",,posture,
+04_filler_heavy.mp4,"Many um / uh / like",,delivery,
+05_rambling_no_structure.mp4,"No opening or closing; wanders between topics",,content,
+06_flat_looking_at_notes.mp4,"Flat face; keeps looking down or away from the camera",,expression,
+07_poor_light_or_no_face.mp4,"Very dark or face turned away (edge case)",,expression,
+08_silent_no_audio.mp4,"Video with the microphone muted (edge case)",,,No audio
