@@ -1,5 +1,5 @@
 """
-modules/audio.py — Member C (Speech & Language) owns this file.
+modules/audio.py — Member C (Speech & Language) 
 
 Contract with main.py (unchanged):
 

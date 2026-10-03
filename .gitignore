@@ -217,3 +217,8 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 cloudflared.exe
+
+test_videos/
+test_reports/
+test_results.csv
+calibration_results.csv
