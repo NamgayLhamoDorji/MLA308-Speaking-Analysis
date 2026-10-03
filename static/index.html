@@ -2,41 +2,541 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Speaking Platform — Skeleton (replace with Member D's real dashboard)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Speaking Coach</title>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; }
-  h1 { font-size: 1.3rem; }
-  #result { white-space: pre-wrap; background: #f4f4f4; padding: 12px; border-radius: 6px; margin-top: 16px; }
-  button { padding: 8px 16px; font-size: 1rem; cursor: pointer; }
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --text: #1b1f27; --muted: #5f6877;
+    --border: #dde1e8; --accent: #2557d6; --accent-text: #ffffff;
+    --good: #15803d; --warn: #b45309; --bad: #b91c1c;
+    --good-bg: #dcfce7; --warn-bg: #fef3c7; --bad-bg: #fee2e2;
+    --track: #e6e9ef;
+    --c-content: #2557d6; --c-delivery: #c2410c; --c-posture: #0f766e;
+    --c-expression: #9333ea; --c-language: #be123c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --surface: #1b2029; --text: #e8ebf1; --muted: #9aa3b2;
+      --border: #2d3441; --accent: #6c93ff; --accent-text: #0b1020;
+      --good: #4ade80; --warn: #fbbf24; --bad: #f87171;
+      --good-bg: #12351f; --warn-bg: #3a2c0a; --bad-bg: #3d1717;
+      --track: #2d3441;
+      --c-content: #6c93ff; --c-delivery: #fb923c; --c-posture: #2dd4bf;
+      --c-expression: #c084fc; --c-language: #fb7185;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 20px 16px 60px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+  h1 { font-size: 1.4rem; margin: 0; }
+  h2 { font-size: 1.1rem; margin: 0 0 12px; }
+  .sub { color: var(--muted); font-size: .9rem; margin: 2px 0 0; }
+  nav { display: flex; gap: 6px; }
+  nav button { background: transparent; color: var(--text); border: 1px solid var(--border);
+               padding: 8px 14px; border-radius: 8px; cursor: pointer; font: inherit; }
+  nav button[aria-selected="true"] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  button.btn { background: var(--accent); color: var(--accent-text); border: 0; padding: 10px 18px;
+               border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer; }
+  button.btn.secondary { background: transparent; color: var(--text); border: 1px solid var(--border); font-weight: 500; }
+  button.btn.danger { background: var(--bad); color: #fff; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button:focus-visible, input:focus-visible, summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+  .choice { border: 1px dashed var(--border); border-radius: 10px; padding: 14px; }
+  .choice h3 { margin: 0 0 8px; font-size: 1rem; }
+  video { width: 100%; max-height: 260px; background: #000; border-radius: 8px; margin-top: 10px; display: none; }
+  .selected { margin-top: 12px; font-size: .9rem; color: var(--muted); }
+  .rec-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--bad); margin-right: 6px; animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .25; } }
+  .hint { color: var(--muted); font-size: .85rem; margin-top: 8px; }
+
+  .progress-bar { height: 10px; background: var(--track); border-radius: 99px; overflow: hidden; margin: 10px 0; }
+  .progress-fill { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .progress-fill.indeterminate { width: 40%; animation: slide 1.4s ease-in-out infinite; }
+  @keyframes slide { 0% { margin-left: -40%; } 100% { margin-left: 100%; } }
+  @media (prefers-reduced-motion: reduce) { .progress-fill.indeterminate, .rec-dot { animation: none; } }
+
+  .error { border-color: var(--bad); background: var(--bad-bg); }
+  .error h2 { color: var(--bad); }
+  .error pre { white-space: pre-wrap; word-break: break-word; margin: 8px 0 0; font-size: .85rem; }
+
+  .meta { display: flex; flex-wrap: wrap; gap: 8px 22px; color: var(--muted); font-size: .9rem; }
+  .meta b { color: var(--text); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 14px; margin-top: 14px; }
+  .param { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; border-top: 4px solid var(--pc); }
+  .param header { margin: 0 0 6px; align-items: baseline; }
+  .param h3 { margin: 0; font-size: 1.05rem; }
+  .param .what { color: var(--muted); font-size: .8rem; }
+  .score { font-size: 2.2rem; font-weight: 700; line-height: 1; }
+  .score small { font-size: .9rem; font-weight: 400; color: var(--muted); }
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 99px; font-size: .8rem; font-weight: 600; }
+  .pill.good { background: var(--good-bg); color: var(--good); }
+  .pill.warn { background: var(--warn-bg); color: var(--warn); }
+  .pill.bad  { background: var(--bad-bg);  color: var(--bad); }
+  .pill.none { background: var(--track); color: var(--muted); }
+  .meter { height: 8px; background: var(--track); border-radius: 99px; overflow: hidden; margin: 10px 0; }
+  .meter > span { display: block; height: 100%; background: var(--pc); border-radius: 99px; }
+  .feedback { margin: 8px 0 10px; }
+  details { border-top: 1px solid var(--border); padding-top: 8px; font-size: .88rem; }
+  summary { cursor: pointer; color: var(--muted); }
+  dl { margin: 8px 0 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; }
+  dt { color: var(--muted); } dd { margin: 0; word-break: break-word; }
+  .note { font-style: italic; color: var(--muted); margin-top: 6px; }
+  .transcript { white-space: pre-wrap; background: var(--bg); border-radius: 8px; padding: 12px; font-size: .92rem; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .85rem; margin-top: 8px; }
+  .legend i { display: inline-block; width: 12px; height: 3px; margin-right: 6px; vertical-align: middle; border-radius: 2px; }
+  canvas { width: 100%; height: 280px; display: block; }
+  table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; }
+  td.num { font-variant-numeric: tabular-nums; }
+  .scroll-x { overflow-x: auto; }
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
-  <h1>Speaking Platform — pipeline skeleton</h1>
-  <p>This is a placeholder page just to prove the pipeline works end-to-end. Member D replaces this whole file with the real dashboard — the <code>POST /api/analyze</code> contract below stays the same either way.</p>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Speaking Coach</h1>
+      <p class="sub">Upload or record a video of yourself speaking. You get a separate score for each skill, plus tips.</p>
+    </div>
+    <nav role="tablist" aria-label="Views">
+      <button role="tab" id="tab-analyze" aria-selected="true" data-view="analyze">Analyze</button>
+      <button role="tab" id="tab-progress" aria-selected="false" data-view="progress">My progress</button>
+    </nav>
+  </header>
 
-  <input type="file" id="videoInput" accept="video/*">
-  <button onclick="analyze()">Analyze</button>
-  <div id="result"></div>
+  <!-- ===================== ANALYZE ===================== -->
+  <section id="view-analyze">
+    <div class="card" id="input-card">
+      <h2>1. Choose a video</h2>
+      <div class="choices">
+        <div class="choice">
+          <h3>Upload a file</h3>
+          <input type="file" id="fileInput" accept="video/*,.mp4,.mov,.webm,.avi,.mkv">
+          <p class="hint">MP4, MOV, WebM, AVI or MKV. 30 seconds to 3 minutes works best.</p>
+        </div>
+        <div class="choice">
+          <h3>Record with your camera</h3>
+          <div class="row">
+            <button class="btn secondary" id="recStart">Start camera</button>
+            <button class="btn danger" id="recToggle" hidden>Record</button>
+          </div>
+          <div id="recStatus" class="hint" aria-live="polite"></div>
+          <video id="preview" muted playsinline></video>
+          <p class="hint">Needs camera and microphone permission. Works on https links (like the tunnel) and localhost.</p>
+        </div>
+      </div>
+      <div class="selected" id="selected" aria-live="polite">No video selected yet.</div>
+      <div class="row" style="margin-top:14px">
+        <button class="btn" id="analyzeBtn" disabled>Analyze my speaking</button>
+        <button class="btn secondary" id="resetBtn" hidden>Start over</button>
+      </div>
+    </div>
 
-  <script>
-    async function analyze() {
-      const input = document.getElementById('videoInput');
-      const resultEl = document.getElementById('result');
-      if (!input.files.length) { alert('Choose a video first'); return; }
+    <div class="card" id="progress-card" hidden aria-live="polite">
+      <h2 id="progress-title">Working…</h2>
+      <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" id="pbar">
+        <div class="progress-fill" id="pfill"></div>
+      </div>
+      <div class="hint" id="progress-detail"></div>
+    </div>
 
-      resultEl.textContent = 'Processing...';
-      const formData = new FormData();
-      formData.append('file', input.files[0]);
+    <div class="card error" id="error-card" hidden role="alert">
+      <h2>That didn't work</h2>
+      <div id="error-msg"></div>
+      <pre id="error-detail"></pre>
+      <div class="row" style="margin-top:12px"><button class="btn secondary" id="retryBtn">Try again</button></div>
+    </div>
 
-      try {
-        const res = await fetch('/api/analyze', { method: 'POST', body: formData });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || 'Analysis failed');
-        resultEl.textContent = JSON.stringify(data, null, 2);
-      } catch (err) {
-        resultEl.textContent = 'Error: ' + err.message;
-      }
+    <div id="results" hidden>
+      <div class="card">
+        <h2>Your report</h2>
+        <div class="meta" id="report-meta"></div>
+        <div class="grid" id="param-grid"></div>
+      </div>
+      <div class="card">
+        <h2>What we heard</h2>
+        <div class="transcript" id="transcript"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== PROGRESS ===================== -->
+  <section id="view-progress" hidden>
+    <div class="card">
+      <h2>Scores over your sessions</h2>
+      <div id="chart-empty" class="hint" hidden></div>
+      <canvas id="chart" role="img" aria-label="Line chart of each score across your past sessions"></canvas>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div class="card">
+      <h2>Past sessions</h2>
+      <div class="scroll-x"><table id="history-table"></table></div>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+  const PARAMS = [
+    { key: 'content',    title: 'Content',    what: 'What you said: structure, clarity, evidence',  cssVar: '--c-content' },
+    { key: 'delivery',   title: 'Delivery',   what: 'Pace, filler words, pauses',                   cssVar: '--c-delivery' },
+    { key: 'posture',    title: 'Posture',    what: 'Shoulders, framing, steadiness',                cssVar: '--c-posture' },
+    { key: 'expression', title: 'Expression', what: 'Facial engagement',                             cssVar: '--c-expression' },
+    { key: 'language',   title: 'Language',   what: 'Grammar and vocabulary',                        cssVar: '--c-language' },
+  ];
+
+  const $ = id => document.getElementById(id);
+
+  // ---------- helpers ----------
+  const el = (tag, props = {}, ...kids) => {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(props)) {
+      if (k === 'class') n.className = v; else if (k === 'text') n.textContent = v; else n.setAttribute(k, v);
     }
-  </script>
+    kids.forEach(c => n.append(c));
+    return n;
+  };
+  const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const isNum = v => typeof v === 'number' && isFinite(v);
+  const tone = s => !isNum(s) ? 'none' : s >= 75 ? 'good' : s >= 55 ? 'warn' : 'bad';
+  const prettyKey = k => k.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+  const fmtDate = iso => {
+    const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  };
+  function fmtVal(v) {
+    if (v === null || v === undefined) return '—';
+    if (typeof v === 'boolean') return v ? 'yes' : 'no';
+    if (isNum(v)) return String(Math.round(v * 100) / 100);
+    if (Array.isArray(v)) return v.length ? v.map(fmtVal).join(', ') : 'none';
+    if (typeof v === 'object') {
+      const parts = Object.entries(v).map(([k, x]) => `${prettyKey(k).toLowerCase()}: ${fmtVal(x)}`);
+      return parts.length ? parts.join(' · ') : 'none';
+    }
+    return String(v);
+  }
+
+  // ---------- tabs ----------
+  const tabs = document.querySelectorAll('nav button');
+  function showView(name) {
+    tabs.forEach(t => t.setAttribute('aria-selected', String(t.dataset.view === name)));
+    $('view-analyze').hidden = name !== 'analyze';
+    $('view-progress').hidden = name !== 'progress';
+    if (name === 'progress') loadHistory();
+  }
+  tabs.forEach(t => t.addEventListener('click', () => showView(t.dataset.view)));
+
+  // ---------- video selection (upload or record) ----------
+  let selected = null;           // File
+  let stream = null, recorder = null, chunks = [], recTimer = null, recStarted = 0;
+  const MAX_REC_SECONDS = 180;
+
+  function setSelected(file, label) {
+    selected = file;
+    $('selected').textContent = file
+      ? `Ready: ${label} (${(file.size / 1048576).toFixed(1)} MB)`
+      : 'No video selected yet.';
+    $('analyzeBtn').disabled = !file;
+  }
+
+  $('fileInput').addEventListener('change', e => {
+    const f = e.target.files[0];
+    if (f) { stopCamera(); setSelected(f, f.name); }
+  });
+
+  async function startCamera() {
+    if (!navigator.mediaDevices || !window.MediaRecorder) {
+      $('recStatus').textContent = 'Recording is not supported in this browser. Please upload a file instead.';
+      return;
+    }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 }, audio: true });
+    } catch (err) {
+      $('recStatus').textContent = 'Could not open the camera: ' + (err.message || err.name) +
+        '. Allow camera and microphone access in your browser, or upload a file.';
+      return;
+    }
+    const v = $('preview');
+    v.srcObject = stream; v.muted = true; v.controls = false; v.style.display = 'block'; v.play();
+    $('recStart').hidden = true; $('recToggle').hidden = false; $('recToggle').textContent = 'Record';
+    $('recStatus').textContent = 'Camera on. Press Record when you are ready.';
+  }
+
+  function stopCamera() {
+    if (recorder && recorder.state !== 'inactive') { recorder.onstop = null; recorder.stop(); }
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = null; recorder = null; clearInterval(recTimer);
+    $('recToggle').hidden = true; $('recStart').hidden = false;
+    $('recStatus').textContent = '';
+    if (!$('preview').src) $('preview').style.display = 'none';
+  }
+
+  function toggleRecording() {
+    if (recorder && recorder.state === 'recording') { recorder.stop(); return; }
+    chunks = [];
+    const types = ['video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'];
+    const mime = types.find(t => MediaRecorder.isTypeSupported(t)) || '';
+    recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+    recorder.onstop = () => {
+      clearInterval(recTimer);
+      const type = recorder.mimeType || 'video/webm';
+      const ext = type.includes('mp4') ? 'mp4' : 'webm';
+      const blob = new Blob(chunks, { type });
+      const file = new File([blob], `recording.${ext}`, { type });
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      stream = null;
+      const v = $('preview');
+      v.srcObject = null; v.src = URL.createObjectURL(blob);
+      v.muted = false; v.controls = true; v.style.display = 'block';
+      $('recToggle').hidden = true; $('recStart').hidden = false; $('recStart').textContent = 'Record again';
+      $('recStatus').textContent = 'Recording finished. Play it back below, or record again.';
+      $('fileInput').value = '';
+      setSelected(file, 'your recording');
+    };
+    recorder.start(1000);
+    recStarted = Date.now();
+    $('recToggle').textContent = 'Stop recording';
+    $('recStatus').innerHTML = '';
+    const dot = el('span', { class: 'rec-dot' });
+    const t = el('span', { text: '0:00' });
+    $('recStatus').append(dot, 'Recording ', t);
+    recTimer = setInterval(() => {
+      const s = Math.floor((Date.now() - recStarted) / 1000);
+      t.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+      if (s >= MAX_REC_SECONDS) recorder.stop();
+    }, 500);
+  }
+  $('recStart').addEventListener('click', () => {
+    $('preview').removeAttribute('src');
+    startCamera();
+  });
+  $('recToggle').addEventListener('click', toggleRecording);
+
+  // ---------- analyze ----------
+  let busy = false, elapsedTimer = null;
+
+  function showError(msg, detail) {
+    $('progress-card').hidden = true;
+    $('error-card').hidden = false;
+    $('error-msg').textContent = msg;
+    $('error-detail').textContent = detail || '';
+  }
+
+  function friendly(status, detail) {
+    const d = String(detail || '');
+    if (/No audio/i.test(d)) return 'We could not find any sound in that video. Make sure your microphone was on, then try again.';
+    if (status === 413) return 'That file is too large. Try a shorter video.';
+    if (status === 400) return 'That file type is not supported. Use MP4, MOV, WebM, AVI or MKV.';
+    if (status === 0) return 'Could not reach the server. Check your connection and that the app is still running.';
+    return 'Something went wrong while analysing your video.';
+  }
+
+  function startAnalyze() {
+    if (!selected || busy) return;
+    busy = true;
+    $('error-card').hidden = true; $('results').hidden = true;
+    $('analyzeBtn').disabled = true;
+    $('progress-card').hidden = false;
+    const fill = $('pfill'), bar = $('pbar');
+    fill.classList.remove('indeterminate'); fill.style.width = '0%';
+    $('progress-title').textContent = 'Uploading your video…';
+    $('progress-detail').textContent = '';
+
+    const fd = new FormData();
+    fd.append('file', selected, selected.name);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/analyze');
+
+    xhr.upload.onprogress = e => {
+      if (!e.lengthComputable) return;
+      const pct = Math.round(e.loaded / e.total * 100);
+      fill.style.width = pct + '%'; bar.setAttribute('aria-valuenow', pct);
+      $('progress-detail').textContent = pct + '%';
+    };
+    xhr.upload.onload = () => {
+      $('progress-title').textContent = 'Analysing your speech, posture and expression…';
+      fill.classList.add('indeterminate'); fill.style.width = '';
+      bar.removeAttribute('aria-valuenow');
+      const t0 = Date.now();
+      elapsedTimer = setInterval(() => {
+        const s = Math.floor((Date.now() - t0) / 1000);
+        $('progress-detail').textContent =
+          `${s}s so far. This usually takes one to a few minutes; the first run is slower while models load.`;
+      }, 1000);
+    };
+    const done = () => { busy = false; clearInterval(elapsedTimer); $('analyzeBtn').disabled = !selected; };
+
+    xhr.onload = () => {
+      done();
+      let data = null;
+      try { data = JSON.parse(xhr.responseText); } catch (_) {}
+      if (xhr.status >= 200 && xhr.status < 300 && data && data.parameters) {
+        $('progress-card').hidden = true;
+        renderReport(data);
+        $('results').scrollIntoView({ behavior: 'smooth' });
+      } else {
+        const detail = data && data.detail ? data.detail : (xhr.responseText || '').slice(0, 400);
+        showError(friendly(xhr.status, detail), detail);
+      }
+    };
+    xhr.onerror = () => { done(); showError(friendly(0), 'Network error'); };
+    xhr.ontimeout = () => { done(); showError('The analysis took too long.', 'Request timed out'); };
+    xhr.timeout = 15 * 60 * 1000;
+    xhr.send(fd);
+  }
+  $('analyzeBtn').addEventListener('click', startAnalyze);
+  $('retryBtn').addEventListener('click', () => { $('error-card').hidden = true; startAnalyze(); });
+  $('resetBtn').addEventListener('click', () => {
+    $('results').hidden = true; $('resetBtn').hidden = true;
+    $('fileInput').value = ''; setSelected(null);
+    $('preview').removeAttribute('src'); $('preview').style.display = 'none';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+
+  // ---------- render report ----------
+  function renderParam(p, data) {
+    const r = (data.parameters || {})[p.key] || {};
+    const score = isNum(r.score) ? r.score : null;
+    const card = el('div', { class: 'param' });
+    card.style.setProperty('--pc', `var(${p.cssVar})`);
+
+    const head = el('header', {},
+      el('div', {}, el('h3', { text: p.title }), el('div', { class: 'what', text: p.what })),
+      el('span', { class: 'pill ' + tone(score), text: r.label || 'No result' }));
+    const sc = el('div', { class: 'score' }, score === null ? '—' : String(Math.round(score)), el('small', { text: ' / 100' }));
+    const meter = el('div', { class: 'meter' }, el('span'));
+    meter.firstChild.style.width = (score === null ? 0 : Math.max(0, Math.min(100, score))) + '%';
+    card.append(head, sc, meter, el('p', { class: 'feedback', text: r.feedback || '' }));
+
+    const det = r.details || {};
+    const keys = Object.keys(det).filter(k => k !== 'note');
+    if (keys.length || det.note) {
+      const d = el('details', {}, el('summary', { text: 'See the numbers' }));
+      if (keys.length) {
+        const dl = el('dl');
+        keys.forEach(k => dl.append(el('dt', { text: prettyKey(k) }), el('dd', { text: fmtVal(det[k]) })));
+        d.append(dl);
+      }
+      if (det.note) d.append(el('div', { class: 'note', text: det.note }));
+      card.append(d);
+    }
+    return card;
+  }
+
+  function renderReport(data) {
+    const meta = $('report-meta'); meta.textContent = '';
+    const add = (label, val) => meta.append(el('span', {}, label + ' ', el('b', { text: val })));
+    if (isNum(data.duration_seconds)) add('Length', `${Math.round(data.duration_seconds)}s`);
+    if (isNum(data.processing_time_seconds)) add('Analysed in', `${Math.round(data.processing_time_seconds)}s`);
+    if (data.created_at) add('Date', fmtDate(data.created_at));
+
+    const grid = $('param-grid'); grid.textContent = '';
+    PARAMS.forEach(p => grid.append(renderParam(p, data)));
+
+    $('transcript').textContent = data.transcript || '(No transcript available.)';
+    $('results').hidden = false; $('resetBtn').hidden = false;
+  }
+
+  // ---------- progress view ----------
+  let history = [];
+
+  async function loadHistory() {
+    try {
+      const res = await fetch('/api/history?limit=50');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      history = await res.json();
+    } catch (err) {
+      history = [];
+      $('chart-empty').hidden = false;
+      $('chart-empty').textContent = 'Could not load your history: ' + err.message;
+      drawChart(); renderTable(); return;
+    }
+    $('chart-empty').hidden = true;
+    drawChart(); renderTable();
+  }
+
+  function renderTable() {
+    const t = $('history-table'); t.textContent = '';
+    if (!history.length) { t.append(el('tr', {}, el('td', { class: 'hint', text: 'No sessions yet. Analyze a video to start tracking.' }))); return; }
+    const head = el('tr', {}, el('th', { text: 'Date' }), ...PARAMS.map(p => el('th', { text: p.title })), el('th', { text: '' }));
+    t.append(el('thead', {}, head));
+    const body = el('tbody');
+    history.forEach(h => {
+      const tr = el('tr', {}, el('td', { text: fmtDate(h.created_at) }));
+      PARAMS.forEach(p => {
+        const s = ((h.parameters || {})[p.key] || {}).score;
+        tr.append(el('td', { class: 'num', text: isNum(s) ? String(Math.round(s)) : '—' }));
+      });
+      const btn = el('button', { class: 'btn secondary', text: 'View' });
+      btn.addEventListener('click', () => { showView('analyze'); $('error-card').hidden = true; $('progress-card').hidden = true; renderReport(h); $('results').scrollIntoView({ behavior: 'smooth' }); });
+      tr.append(el('td', {}, btn));
+      body.append(tr);
+    });
+    t.append(body);
+  }
+
+  function drawChart() {
+    const canvas = $('chart'), legend = $('legend'); legend.textContent = '';
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.clientWidth, H = canvas.clientHeight;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    const ctx = canvas.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+
+    const sessions = history.slice().reverse();             // oldest -> newest
+    if (sessions.length < 2) {
+      $('chart-empty').hidden = false;
+      $('chart-empty').textContent = sessions.length === 0
+        ? 'No sessions yet. Analyze a video and your scores will appear here.'
+        : 'Only one session so far. Do another to see how you are improving.';
+      if (sessions.length === 0) return;
+    }
+
+    const m = { l: 36, r: 12, t: 10, b: 26 };
+    const pw = W - m.l - m.r, ph = H - m.t - m.b;
+    const grid = cssVar('--border'), txt = cssVar('--muted');
+    ctx.font = '12px system-ui, sans-serif'; ctx.fillStyle = txt; ctx.strokeStyle = grid; ctx.lineWidth = 1;
+    [0, 25, 50, 75, 100].forEach(v => {
+      const y = m.t + ph - (v / 100) * ph;
+      ctx.beginPath(); ctx.moveTo(m.l, y); ctx.lineTo(W - m.r, y); ctx.stroke();
+      ctx.textAlign = 'right'; ctx.fillText(v, m.l - 6, y + 4);
+    });
+    const n = sessions.length;
+    const x = i => m.l + (n === 1 ? pw / 2 : (i / (n - 1)) * pw);
+    ctx.textAlign = 'center';
+    const step = Math.max(1, Math.ceil(n / 8));
+    sessions.forEach((s, i) => { if (i % step === 0 || i === n - 1) ctx.fillText('#' + (i + 1), x(i), H - 8); });
+
+    PARAMS.forEach(p => {
+      const color = cssVar(p.cssVar);
+      legend.append(el('span', {}, (() => { const i = el('i'); i.style.background = color; return i; })(), p.title));
+      ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 2;
+      ctx.beginPath(); let started = false;
+      sessions.forEach((s, i) => {
+        const v = ((s.parameters || {})[p.key] || {}).score;
+        if (!isNum(v)) { started = false; return; }
+        const px = x(i), py = m.t + ph - (v / 100) * ph;
+        if (!started) { ctx.moveTo(px, py); started = true; } else ctx.lineTo(px, py);
+      });
+      ctx.stroke();
+      sessions.forEach((s, i) => {
+        const v = ((s.parameters || {})[p.key] || {}).score;
+        if (!isNum(v)) return;
+        ctx.beginPath(); ctx.arc(x(i), m.t + ph - (v / 100) * ph, 3, 0, Math.PI * 2); ctx.fill();
+      });
+    });
+  }
+  window.addEventListener('resize', () => { if (!$('view-progress').hidden) drawChart(); });
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (!$('view-progress').hidden) drawChart(); });
+})();
+</script>
 </body>
 </html>

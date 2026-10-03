@@ -1,37 +1,104 @@
 """
 db.py — Member D (Frontend, Data & Presentation) owns this file.
 
-Contract with main.py:
+Contract with main.py (unchanged):
 
-    init() -> None                          create the DB/table if missing
+    init() -> None
     save_session(session_id: str, report: dict) -> None
-    get_recent_sessions(limit: int) -> list[dict]   backs the progress view
-    is_ready() -> bool                      used by /api/health
+    get_recent_sessions(limit: int) -> list[dict]   newest first
+    is_ready() -> bool
 
-TODO(Member D): replace with a real SQLite table (session_id, timestamp,
-full report JSON, and pulled-out per-parameter scores for the
-progress-over-time chart). This stub keeps everything in memory so
-main.py and the frontend can be developed against it before the real
-schema is ready — swap the internals, keep the four function signatures.
+Storage: one SQLite file (sessions.db, next to main.py). Each row keeps
+the full report as JSON plus the five per-parameter scores pulled out
+into their own columns, so the progress-over-time view (and any future
+SQL queries) don't have to parse JSON.
+
+Thread-safety: FastAPI runs plain-def routes in a thread pool, so every
+call opens its own short-lived connection instead of sharing one.
 """
 
-_sessions = []  # STUB: in-memory list, cleared on restart
+import json
+import sqlite3
+from contextlib import closing
+from datetime import datetime, timezone
+from pathlib import Path
+
+DB_PATH = Path(__file__).resolve().parent / "sessions.db"
+
+PARAMETERS = ("content", "delivery", "posture", "expression", "language")
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS sessions (
+    session_id       TEXT PRIMARY KEY,
+    created_at       TEXT NOT NULL,           -- ISO-8601, UTC
+    duration_seconds REAL,
+    content_score    REAL,
+    delivery_score   REAL,
+    posture_score    REAL,
+    expression_score REAL,
+    language_score   REAL,
+    report_json      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions (created_at);
+"""
+
+
+def _connect() -> sqlite3.Connection:
+    return sqlite3.connect(DB_PATH, timeout=10)
 
 
 def init() -> None:
-    # TODO(Member D): sqlite3.connect("sessions.db"), CREATE TABLE IF NOT EXISTS ...
-    pass
+    with closing(_connect()) as conn:
+        conn.executescript(_SCHEMA)
+        conn.commit()
+
+
+def _score(report: dict, key: str):
+    value = (report.get("parameters", {}).get(key) or {}).get("score")
+    return float(value) if isinstance(value, (int, float)) else None
 
 
 def save_session(session_id: str, report: dict) -> None:
-    # TODO(Member D): INSERT into SQLite instead of appending to a list.
-    _sessions.append(report)
+    created_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with closing(_connect()) as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO sessions
+               (session_id, created_at, duration_seconds,
+                content_score, delivery_score, posture_score,
+                expression_score, language_score, report_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                session_id,
+                created_at,
+                report.get("duration_seconds"),
+                *(_score(report, k) for k in PARAMETERS),
+                json.dumps(report),
+            ),
+        )
+        conn.commit()
 
 
 def get_recent_sessions(limit: int = 20) -> list:
-    # TODO(Member D): SELECT ... ORDER BY timestamp DESC LIMIT ?
-    return _sessions[-limit:][::-1]
+    limit = max(1, min(int(limit), 200))
+    with closing(_connect()) as conn:
+        rows = conn.execute(
+            "SELECT created_at, report_json FROM sessions "
+            "ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+    sessions = []
+    for created_at, report_json in rows:
+        report = json.loads(report_json)
+        report["created_at"] = created_at      # lets the dashboard label the chart
+        sessions.append(report)
+    return sessions
 
 
 def is_ready() -> bool:
-    return True
+    try:
+        with closing(_connect()) as conn:
+            conn.execute("SELECT 1 FROM sessions LIMIT 1")
+        return True
+    except sqlite3.Error:
+        return False
