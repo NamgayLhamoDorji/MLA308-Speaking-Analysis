@@ -1,5 +1,5 @@
 """
-modules/vision.py — Member B (Computer Vision) 
+modules/vision.py — Member B (Computer Vision) owns this file.
 
 Contract with main.py (do not change these names/signatures):
 
@@ -24,12 +24,15 @@ Also exposed for calibrate_vision.py:
     score_posture(raw)         -> (score, sub_scores)
     score_expression(raw)      -> (score, sub_scores)
 
-Face landmarks: uses the MediaPipe Face Mesh "solutions" API when it is
-installed (mediapipe 0.10.14), otherwise the newer Face Landmarker "tasks"
-API with face_landmarker.task from the repo root. Both give 478 landmarks
-(including irises), so the metrics are identical.
+One library for everything: MediaPipe finds the shoulders (Pose) for
+posture and the face (Face Mesh) for expression, so YOLO / ultralytics /
+PyTorch are no longer needed. Each uses the MediaPipe "solutions" API when
+it is installed (mediapipe 0.10.14, models are bundled), otherwise the newer
+"tasks" API with a .task model file in the repo root (face_landmarker.task
+and pose_landmarker_lite.task; the pose file is downloaded automatically the
+first time if it is missing). Face gives 478 landmarks including irises.
 
-Install: ultralytics==8.3.0  mediapipe==0.10.14
+Install: mediapipe==0.10.14   (opencv-python and numpy come with it)
 """
 
 import atexit
@@ -61,7 +64,7 @@ EXPRESSION_BANDS = {
 }
 
 # Other measurement settings (also tunable)
-KEYPOINT_CONF_THRESHOLD = 0.4
+SHOULDER_VISIBILITY_MIN = 0.5      # MediaPipe "visibility" a shoulder needs to count as seen
 SHOULDERS_TOO_SMALL_PCT = 15.0       # shoulders narrower than this % of frame width -> "move closer"
 SHOULDERS_TOO_BIG_PCT = 75.0         # wider than this -> "move back"
 
@@ -76,11 +79,13 @@ IRIS_V_BAND = (0.25, 0.75)           # iris vertical position between lids
 LABEL_STRONG, LABEL_DEVELOPING = 75, 55   # same cut-offs as the dashboard (rubric section 3)
 
 ROOT = Path(__file__).resolve().parent.parent
-POSE_WEIGHTS_PATH = ROOT / "yolov8n-pose.pt"
 FACE_TASK_PATH = ROOT / "face_landmarker.task"
+POSE_TASK_PATH = ROOT / "pose_landmarker_lite.task"
+POSE_TASK_URL = ("https://storage.googleapis.com/mediapipe-models/pose_landmarker/"
+                 "pose_landmarker_lite/float16/latest/pose_landmarker_lite.task")
 
-# COCO keypoint indices used by YOLOv8-Pose
-L_SHOULDER, R_SHOULDER = 5, 6
+# MediaPipe Pose landmark indices (33-point body model)
+L_SHOULDER, R_SHOULDER = 11, 12
 
 # MediaPipe face landmark indices (478-point mesh with irises)
 MOUTH_LEFT, MOUTH_RIGHT = 61, 291
@@ -135,17 +140,65 @@ def _spread(values):
 # Lazy-loaded models (once per process)
 # ---------------------------------------------------------------------------
 
-_pose_model = None
+_pose_backend = None
 _face_backend = None
 _face_lock = threading.Lock()      # FastAPI runs requests in threads; MediaPipe objects aren't thread-safe
+_pose_lock = threading.Lock()
 
 
-def _get_pose_model():
-    global _pose_model
-    if _pose_model is None:
-        from ultralytics import YOLO
-        _pose_model = YOLO(str(POSE_WEIGHTS_PATH))
-    return _pose_model
+def _safe_close(obj):
+    try:
+        obj.close()
+    except Exception:
+        pass                        # harmless at interpreter shutdown
+
+
+def _get_pose_backend():
+    global _pose_backend
+    if _pose_backend is None:
+        import mediapipe as mp
+        if hasattr(mp, "solutions") and hasattr(mp.solutions, "pose"):
+            pose = mp.solutions.pose.Pose(
+                static_image_mode=True, model_complexity=0,       # 0 = lite model, fast on CPU
+                min_detection_confidence=0.5)
+            _pose_backend = ("solutions", pose)
+        else:
+            if not POSE_TASK_PATH.exists():
+                import urllib.request
+                try:
+                    urllib.request.urlretrieve(POSE_TASK_URL, POSE_TASK_PATH)
+                except Exception as e:
+                    POSE_TASK_PATH.unlink(missing_ok=True)
+                    raise RuntimeError(
+                        f"pose_landmarker_lite.task not found and could not be downloaded ({e}). "
+                        f"Download it from {POSE_TASK_URL} and put it in the project root.")
+            from mediapipe.tasks import python as mp_python
+            from mediapipe.tasks.python import vision as mp_vision
+            options = mp_vision.PoseLandmarkerOptions(
+                base_options=mp_python.BaseOptions(model_asset_path=str(POSE_TASK_PATH)),
+                running_mode=mp_vision.RunningMode.IMAGE, num_poses=1)
+            lm = mp_vision.PoseLandmarker.create_from_options(options)
+            _pose_backend = ("tasks", lm)
+            atexit.register(_safe_close, lm)
+    return _pose_backend
+
+
+def _detect_shoulders(rgb):
+    """((x, y, visibility) left, (x, y, visibility) right) with x, y in 0-1,
+    or None if no body was found."""
+    kind, detector = _get_pose_backend()
+    with _pose_lock:
+        if kind == "solutions":
+            res = detector.process(rgb)
+            lms = res.pose_landmarks.landmark if res.pose_landmarks else None
+        else:
+            import mediapipe as mp
+            res = detector.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=np.ascontiguousarray(rgb)))
+            lms = res.pose_landmarks[0] if res.pose_landmarks else None
+    if lms is None:
+        return None
+    l, r = lms[L_SHOULDER], lms[R_SHOULDER]
+    return (l.x, l.y, l.visibility), (r.x, r.y, r.visibility)
 
 
 def _get_face_backend():
@@ -168,12 +221,7 @@ def _get_face_backend():
                 base_options=mp_python.BaseOptions(model_asset_path=str(FACE_TASK_PATH)),
                 running_mode=mp_vision.RunningMode.IMAGE, num_faces=1)
             _face_backend = ("tasks", mp_vision.FaceLandmarker.create_from_options(options))
-            def _close(lm=_face_backend[1]):
-                try:
-                    lm.close()
-                except Exception:
-                    pass                                    # harmless at interpreter shutdown
-            atexit.register(_close)
+            atexit.register(_safe_close, _face_backend[1])
     return _face_backend
 
 
@@ -193,20 +241,6 @@ def _detect_landmarks(rgb):
 # Posture — rubric section 6
 # ---------------------------------------------------------------------------
 
-def _extract_person_keypoints(result):
-    """(17, 3) [x, y, conf] for the largest person in frame (assumed to be
-    the speaker), or None if nobody was detected."""
-    if result.keypoints is None or len(result.keypoints.data) == 0:
-        return None
-    boxes = result.boxes
-    if boxes is not None and len(boxes) > 1:
-        areas = (boxes.xywh[:, 2] * boxes.xywh[:, 3]).cpu().numpy()
-        best = int(np.argmax(areas))
-    else:
-        best = 0
-    return result.keypoints.data[best].cpu().numpy()
-
-
 def measure_posture(frames) -> dict:
     """Raw posture measurements (no scoring)."""
     total = len(frames)
@@ -215,21 +249,22 @@ def measure_posture(frames) -> dict:
     if total == 0:
         return raw
 
-    results = _get_pose_model()(frames, verbose=False)
-
     tilts, offsets, mids, widths = [], [], [], []
-    for result, frame in zip(results, frames):
-        kp = _extract_person_keypoints(result)
-        if kp is None:
+    for frame in frames:
+        found = _detect_shoulders(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        if found is None:
             continue
-        l_sh, r_sh = kp[L_SHOULDER], kp[R_SHOULDER]
-        if l_sh[2] < KEYPOINT_CONF_THRESHOLD or r_sh[2] < KEYPOINT_CONF_THRESHOLD:
+        (lx, ly, lv), (rx, ry, rv) = found
+        if lv < SHOULDER_VISIBILITY_MIN or rv < SHOULDER_VISIBILITY_MIN:
             continue
         fh, fw = frame.shape[:2]
+        # MediaPipe gives 0-1 coordinates; convert to pixels so the tilt angle
+        # isn't distorted by the frame's aspect ratio.
+        l_sh, r_sh = (lx * fw, ly * fh), (rx * fw, ry * fh)
         dx, dy = float(r_sh[0] - l_sh[0]), float(r_sh[1] - l_sh[1])
 
         # Angle of the shoulder line from horizontal, always 0-90 degrees.
-        # (YOLO's "left" shoulder is the speaker's own left, which sits on the
+        # (The model's "left" shoulder is the speaker's own left, which sits on the
         # RIGHT of the image, so dx is usually negative. Using atan2(dy, dx)
         # directly gives ~180 deg for a perfectly level speaker — that was the
         # old tilt bug. abs(dx) removes it.)
