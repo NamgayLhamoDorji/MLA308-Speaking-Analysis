@@ -17,9 +17,15 @@ Run (from the repo root):
     uvicorn main:app --reload
     open http://127.0.0.1:8000
 (add --host 0.0.0.0 only if teammates need to reach it over your network)
+
+Slow laptop? These can be set before starting the server (no code changes):
+    MAX_FRAMES=30         fewer video frames for the vision models
+    WHISPER_MODEL=tiny.en smaller / faster speech-to-text model
+    OLLAMA_MODEL=phi3:mini (already the default) — the lightest option
 """
 
 import math
+import os
 import shutil
 import subprocess
 import time
@@ -33,7 +39,7 @@ from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from modules import audio, content, language, vision
+from modules import audio, content, language, prosody, vision
 import db
 
 # ---------------------------------------------------------------------------
@@ -47,7 +53,7 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 STATIC_DIR = BASE_DIR / "static"
 
 # Config every teammate can tune without touching this file's logic
-MAX_FRAMES = 60                  # max frames handed to the vision models (raise if machines cope)
+MAX_FRAMES = int(os.getenv("MAX_FRAMES", "60"))   # max frames handed to the vision models (lower = faster)
 MAX_UPLOAD_MB = 300              # adjust if test videos are bigger
 ALLOWED_EXTENSIONS = {".mp4", ".mov", ".webm", ".avi", ".mkv"}
 
@@ -89,7 +95,7 @@ def to_native(obj):
     if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
         return None
     return obj
-    
+
 
 # ---------------------------------------------------------------------------
 # Extraction helpers (Member A owns this: it's the shared input every
@@ -111,7 +117,7 @@ def has_audio_stream(video_path: Path) -> bool:
 
 def extract_audio(video_path: Path, out_path: Path) -> Path:
     """Pull a mono 16kHz WAV out of the video with ffmpeg (what
-    faster-whisper and librosa both expect)."""
+    faster-whisper and the tone module both expect)."""
     if not has_audio_stream(video_path):
         raise RuntimeError("No audio detected in this video.")
 
@@ -207,6 +213,7 @@ def analyze(file: UploadFile = File(...)):
       upload -> extract audio + sample frames
              -> vision (posture, expression)      [Member B]
              -> speech-to-text + grammar/vocab     [Member C]
+             -> tone / intonation from the audio   [Member C]
              -> content/rubric scoring via Ollama  [Member C]
              -> combine into one multi-parameter report
              -> save session, return to frontend
@@ -240,11 +247,17 @@ def analyze(file: UploadFile = File(...)):
         # --- Member B: computer vision -------------------------------
         posture_result = vision.analyze_posture(frames)
         expression_result = vision.analyze_expression(frames)
+        del frames                       # free memory before the heavy audio models load
 
         # --- Member C: speech + language ------------------------------
         transcript = audio.transcribe(audio_path)
         delivery_result = audio.compute_delivery_metrics(transcript, duration_s)
         language_result = language.analyze_grammar_and_vocab(transcript)
+
+        # --- Member C: tone / intonation (needs the audio file) -------
+        # prosody never raises: if anything goes wrong it returns a result
+        # with score None, and the dashboard simply leaves tone out.
+        tone_result = prosody.analyze_prosody(audio_path, transcript)
 
         # --- Member C: content scoring via local LLM (Ollama) ---------
         content_result = content.score_content(transcript)
@@ -256,6 +269,7 @@ def analyze(file: UploadFile = File(...)):
             "parameters": {
                 "content": content_result,
                 "delivery": delivery_result,
+                "tone": tone_result,
                 "posture": posture_result,
                 "expression": expression_result,
                 "language": language_result,
@@ -265,7 +279,7 @@ def analyze(file: UploadFile = File(...)):
 
         # Convert numpy types -> plain Python so JSON serialization can't fail
         report = to_native(report)
-        
+
         db.save_session(session_id, report)
         return report
 

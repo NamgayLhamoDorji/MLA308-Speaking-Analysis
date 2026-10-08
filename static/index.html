@@ -11,7 +11,7 @@
     --accent: #1e40af; --accent-ink: #ffffff;
     --good: #0f7a43; --warn: #9a5b06; --bad: #b42318;
     --good-bg: #e4f5ec; --warn-bg: #fdf1dc; --bad-bg: #fde8e6;
-    --c-content: #2563eb; --c-delivery: #d97706; --c-posture: #0d9488;
+    --c-content: #2563eb; --c-delivery: #d97706; --c-tone: #ea580c; --c-posture: #0d9488;
     --c-expression: #7c3aed; --c-language: #db2777;
   }
   @media (prefers-color-scheme: dark) {
@@ -21,7 +21,7 @@
       --accent: #7aa2ff; --accent-ink: #0b1220;
       --good: #4cc38a; --warn: #f0b441; --bad: #f2776b;
       --good-bg: #123324; --warn-bg: #3a2c0e; --bad-bg: #3c1a17;
-      --c-content: #6b9bff; --c-delivery: #f5a623; --c-posture: #2dd4bf;
+      --c-content: #6b9bff; --c-delivery: #f5a623; --c-tone: #fb923c; --c-posture: #2dd4bf;
       --c-expression: #b794f6; --c-language: #f472b6;
     }
   }
@@ -187,7 +187,7 @@
   <section id="view-analyze">
     <div id="input-card">
       <h1>Analyze a speaking video</h1>
-      <p class="lede">Upload a recording or record one now. You get a separate score for content, delivery, posture, expression and language, with tips for each.</p>
+      <p class="lede">Upload a recording or record one now. You get a separate score for content, delivery, tone, posture, expression and language, with tips for each.</p>
       <div class="panel">
         <div class="sources">
           <div class="source">
@@ -270,6 +270,7 @@
   const PARAMS = [
     { key: 'content',    title: 'Content',    what: 'What you said: structure, clarity, evidence',  cssVar: '--c-content' },
     { key: 'delivery',   title: 'Delivery',   what: 'Pace, filler words, pauses',                   cssVar: '--c-delivery' },
+    { key: 'tone',       title: 'Tone',       what: 'How your voice rises and falls: pitch, volume, emphasis', cssVar: '--c-tone' },
     { key: 'posture',    title: 'Posture',    what: 'Shoulders, framing, steadiness',                cssVar: '--c-posture' },
     { key: 'expression', title: 'Expression', what: 'Facial engagement',                             cssVar: '--c-expression' },
     { key: 'language',   title: 'Language',   what: 'Grammar and vocabulary',                        cssVar: '--c-language' },
@@ -278,8 +279,9 @@
   // How much each skill counts toward the overall result. Change these to
   // re-weight (they should add up to 1). If a skill has no result, the rest
   // are re-scaled so it doesn't drag the overall down.
-  const WEIGHTS = { content: 0.25, delivery: 0.25, language: 0.20, expression: 0.15, posture: 0.15 };
-  const ALL = [{ key: 'overall', title: 'Overall', cssVar: '--ink' }, ...PARAMS];   // overall + the five skills
+  const WEIGHTS = { content: 0.25, delivery: 0.20, tone: 0.15, language: 0.15, expression: 0.15, posture: 0.10 };
+  const ALL = [{ key: 'overall', title: 'Overall', cssVar: '--ink' }, ...PARAMS];   // overall + the six skills
+  const NUMWORD = { 5: 'five', 6: 'six' };
 
   const $ = id => document.getElementById(id);
   const SVGNS = 'http://www.w3.org/2000/svg';
@@ -458,7 +460,7 @@
       $('progress-detail').textContent = pct + '% uploaded';
     };
     xhr.upload.onload = () => {
-      $('progress-title').textContent = 'Analysing your speech, posture and expression…';
+      $('progress-title').textContent = 'Analysing your speech, tone, posture and expression…';
       fill.classList.add('indeterminate'); fill.style.width = '';
       bar.removeAttribute('aria-valuenow');
       const t0 = Date.now();
@@ -565,7 +567,7 @@
     const text = el('div', {},
       el('div', { class: 'phead' }, el('h3', { text: 'Overall result' }), el('span', { class: 'pill ' + tone(s), text: overallLabel(s) })),
       el('div', { class: 'total' }, 'Total score: ', el('b', { text: `${Math.round(s)} out of 100` }), ` (${Math.round(s)}%)`),
-      el('p', { text: `A weighted average of your five scores: ${weights}. Each skill is still scored separately below.` }));
+      el('p', { text: `A weighted average of your ${NUMWORD[PARAMS.length] || PARAMS.length} scores: ${weights}. Each skill is still scored separately below.` }));
     if (missing.length) text.append(el('p', { text: 'Not counted because there was no result: ' + missing.join(', ') + '.' }));
     box.append(makeRing(s, true), text);
     box.hidden = false;

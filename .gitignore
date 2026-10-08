@@ -222,6 +222,7 @@ test_videos/
 test_reports/
 test_results.csv
 calibration_results.csv
+tone_results.csv
 
 uploads/
 sessions.db

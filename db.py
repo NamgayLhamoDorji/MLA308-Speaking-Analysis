@@ -9,12 +9,14 @@ Contract with main.py (unchanged):
     is_ready() -> bool
 
 Storage: one SQLite file (sessions.db, next to main.py). Each row keeps
-the full report as JSON plus the five per-parameter scores pulled out
-into their own columns, so the progress-over-time view (and any future
-SQL queries) don't have to parse JSON.
+the full report as JSON plus the six per-parameter scores pulled out
+into their own columns.
 
-Thread-safety: FastAPI runs plain-def routes in a thread pool, so every
-call opens its own short-lived connection instead of sharing one.
+Change: added the "tone" parameter (voice intonation). Existing
+sessions.db files are upgraded automatically (tone_score column is added);
+old sessions simply have no tone score.
+
+Thread-safety: every call opens its own short-lived connection.
 """
 
 import json
@@ -25,7 +27,7 @@ from pathlib import Path
 
 DB_PATH = Path(__file__).resolve().parent / "sessions.db"
 
-PARAMETERS = ("content", "delivery", "posture", "expression", "language")
+PARAMETERS = ("content", "delivery", "posture", "expression", "language", "tone")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
@@ -37,6 +39,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     posture_score    REAL,
     expression_score REAL,
     language_score   REAL,
+    tone_score       REAL,
     report_json      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_created ON sessions (created_at);
@@ -50,6 +53,10 @@ def _connect() -> sqlite3.Connection:
 def init() -> None:
     with closing(_connect()) as conn:
         conn.executescript(_SCHEMA)
+        # Upgrade databases created before the tone parameter existed.
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(sessions)")}
+        if "tone_score" not in cols:
+            conn.execute("ALTER TABLE sessions ADD COLUMN tone_score REAL")
         conn.commit()
 
 
@@ -65,8 +72,8 @@ def save_session(session_id: str, report: dict) -> None:
             """INSERT OR REPLACE INTO sessions
                (session_id, created_at, duration_seconds,
                 content_score, delivery_score, posture_score,
-                expression_score, language_score, report_json)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                expression_score, language_score, tone_score, report_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 session_id,
                 created_at,
@@ -90,7 +97,7 @@ def get_recent_sessions(limit: int = 20) -> list:
     sessions = []
     for created_at, report_json in rows:
         report = json.loads(report_json)
-        report["created_at"] = created_at      # lets the dashboard label the chart
+        report["created_at"] = created_at
         sessions.append(report)
     return sessions
 
