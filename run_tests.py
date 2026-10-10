@@ -111,6 +111,8 @@ def analyze_video(path, main):
         posture = vision.analyze_posture(frames)
         expression = vision.analyze_expression(frames)
         transcript = audio.transcribe(wav)
+        if len(transcript["text"].split()) < 3:
+            raise RuntimeError("No audio speech detected in this video.")
         delivery = audio.compute_delivery_metrics(transcript, duration)
         lang = language.analyze_grammar_and_vocab(transcript)
         tone = prosody.analyze_prosody(wav, transcript)

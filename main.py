@@ -251,6 +251,10 @@ def analyze(file: UploadFile = File(...)):
 
         # --- Member C: speech + language ------------------------------
         transcript = audio.transcribe(audio_path)
+        # A muted microphone still leaves an audio track, so check that
+        # something was actually said before scoring anything.
+        if len(transcript["text"].split()) < 3:
+            raise RuntimeError("No audio speech detected in this video.")
         delivery_result = audio.compute_delivery_metrics(transcript, duration_s)
         language_result = language.analyze_grammar_and_vocab(transcript)
 

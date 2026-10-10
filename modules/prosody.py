@@ -279,6 +279,9 @@ def analyze_prosody(wav_path, transcript) -> dict:
         x = np.interp(np.linspace(0, len(x) - 1, n_new), np.arange(len(x)), x).astype(np.float32)
         sr = SR_EXPECTED
 
+    if len(words) < 8:
+        return _too_little(f"Only {len(words)} words were recognised, so tone cannot be judged.", 0.0)
+
     f0, db = pitch_track(x, sr)
     if len(f0) == 0:
         return _too_little("The audio was too short.", 0.0)
@@ -312,7 +315,7 @@ def analyze_prosody(wav_path, transcript) -> dict:
     # Noise guard: wildly erratic pitch/pace usually means background noise, not expression.
     if (cv is not None and cv > 0.6) or peaks_per_min > 60:
         return {
-            "score": 0.0,
+            "score": None,
             "label": "Audio too noisy",
             "details": {"voiced_speech_seconds": round(voiced_s, 1),
                         "pace_variation_cv": None if cv is None else round(cv, 3),
@@ -356,7 +359,7 @@ def analyze_prosody(wav_path, transcript) -> dict:
 
 def _too_little(reason, voiced_s):
     return {
-        "score": 0.0,
+        "score": None,
         "label": "Not enough speech",
         "details": {"voiced_speech_seconds": round(voiced_s, 1), "note": reason},
         "feedback": "We could not measure your tone. Speak for at least 10 to 20 seconds, close to the microphone.",
