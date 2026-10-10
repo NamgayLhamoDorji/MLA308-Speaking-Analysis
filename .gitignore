@@ -227,3 +227,4 @@ tone_results.csv
 uploads/
 sessions.db
 *.wav
+*.db
