@@ -1,94 +1,126 @@
-# Speaking Platform — Backend Skeleton (Member A)
+# Speaking Evaluation & Coaching Platform (MLA308)
 
-## What this is
-The Day 1–2 shared skeleton from the workplan: a working FastAPI app that
-takes a video upload, extracts audio + sampled frames, and calls into
-each teammate's module. Every ML-heavy call is currently a **stub**
-returning realistic fake data, so the full pipeline runs end-to-end
-*today* — nobody is blocked waiting on anyone else's model.
+A website where a user uploads a video of themselves speaking. The system scores the
+speech on six separate parameters, gives feedback for each one, saves every session,
+and shows progress over time so the speaker can see whether they are improving.
 
-## Folder layout
-```
-main.py              <- Member A: routes, extraction, wiring (this is the file to run)
-db.py                <- Member D: session storage (currently in-memory stub)
-modules/
-  vision.py           <- Member B: posture + expression (stub)
-  audio.py             <- Member C: transcription + delivery metrics (stub)
-  language.py           <- Member C: grammar + vocabulary (stub)
-  content.py             <- Member C: Ollama rubric scoring (stub)
-static/index.html    <- Placeholder page; Member D replaces this with the real dashboard
-requirements.txt     <- pip installs (grows as stubs go real)
-```
+Everything uses free tools. No paid APIs are used.
 
-## Day 1 setup (everyone, on their own laptop — Dell Ryzen 7, i5, and Mac all fine)
-This project has no heavy training step, so no GPU is required — everything
-below runs on CPU. On the Mac, Ollama and faster-whisper both run natively
-on Apple Silicon; on the Windows/Intel laptops they run fine on CPU too,
-just slightly slower. Use `phi3:mini` (not `llama3.1:8b`) as your default
-Ollama model — it's ~2.3GB, runs acceptably on all three machine types, and
-is what `modules/content.py` is already set to.
+## The six scores
 
-1. **Python 3.10+** — check with `python3 --version`.
-2. **ffmpeg** — needed for audio extraction.
-   - Mac: `brew install ffmpeg`
-   - Windows: `winget install ffmpeg` (or download from ffmpeg.org and add to PATH)
-   - Confirm: `ffmpeg -version`
-3. **git** — clone/pull the shared repo.
-4. **Ollama** (Member C's content scoring, and everyone should confirm it
-   works today since it's the one component that behaves differently per OS):
-   - Install from https://ollama.com
-   - `ollama pull phi3:mini`
-   - `ollama run phi3:mini` — type something, confirm you get a reply, then exit.
-5. **Project setup:**
-   ```bash
-   cd member_a_backend
-   python3 -m venv venv
-   source venv/bin/activate        # Windows: venv\Scripts\activate
+| Score | What it looks at | How |
+|---|---|---|
+| Content | Structure, clarity, evidence, relevance | Local Ollama model (phi3:mini) rates the transcript against our rubric; our code computes the score |
+| Delivery | Pace, filler words, pauses | From the Whisper transcript and word timings |
+| Tone | Pitch range, pace variation, emphasis, how statements end | Pitch tracked from the audio with numpy, measured relative to the speaker |
+| Posture | Shoulder tilt, off-centre, sway, in frame | MediaPipe Pose on about 60 sampled frames |
+| Expression | Expressiveness, eye contact, smiles, eyes open, face visible | MediaPipe face landmarks |
+| Language | Grammar and vocabulary variety | LanguageTool and our own vocabulary measure |
+
+Labels everywhere: Strong is 75 or more, Developing is 55 to 74, Needs work is under 55.
+The dashboard also shows an overall score out of 100 (content 25%, delivery 20%, tone 15%,
+expression 15%, language 15%, posture 10%). The six scores stay separate as the main result.
+
+## Tools used
+
+FastAPI and uvicorn (server), ffmpeg and OpenCV (audio and frames), faster-whisper
+(speech to text, base.en), Ollama with phi3:mini (content), LanguageTool (grammar),
+MediaPipe (posture and expression), numpy (tone), SQLite (sessions), one HTML file with
+plain JavaScript (dashboard), Cloudflare quick tunnel (public link).
+
+## Setup (Windows, macOS or Linux, CPU only)
+
+1. **Python 3.10 or newer.** Check with `python --version`.
+2. **ffmpeg** (includes ffprobe). Windows: `winget install ffmpeg`. Mac: `brew install ffmpeg`.
+   Check with `ffmpeg -version`.
+3. **Ollama.** Install from https://ollama.com, then run `ollama pull phi3:mini`.
+4. **Project:**
+   ```
+   python -m venv venv
+   venv\Scripts\activate          # macOS/Linux: source venv/bin/activate
    pip install -r requirements.txt
    ```
-6. **Run it:**
-   ```bash
-   uvicorn main:app --reload
-   ```
-   Open http://127.0.0.1:8000 — upload any short video file and click
-   Analyze. You should get back a JSON report with five stub-scored
-   parameters (content, delivery, posture, expression, language) in a
-   few seconds. If that works, your machine can run the full stack.
-7. **Sanity check endpoint:** http://127.0.0.1:8000/api/health — confirms
-   ffmpeg and Ollama are both reachable from Python.
+5. **First run downloads models.** faster-whisper downloads base.en the first time it is used,
+   and MediaPipe may download the pose model if it is not bundled. Allow internet for the first run.
 
-## How the team plugs in (no changes to main.py needed)
-Each stub function has a `# TODO(Member X)` comment showing exactly what
-to replace and the exact input/output shape main.py expects:
+## Run
 
-- **Member B** — fill in `modules/vision.py`'s two functions with real
-  YOLO-Pose and expression-model inference. `frames` arrives already
-  sampled (every 10th frame by default — see `FRAME_SAMPLE_EVERY_N` in
-  `main.py` if that needs tuning for speed).
-- **Member C** — fill in `modules/audio.py` (faster-whisper),
-  `modules/language.py` (LanguageTool), and `modules/content.py`
-  (Ollama rubric prompt from your professional-speaking research).
-- **Member D** — replace `static/index.html` with the real dashboard,
-  and replace `db.py`'s in-memory list with real SQLite (`init()`,
-  `save_session()`, `get_recent_sessions()` — same three functions,
-  real implementation).
+```
+uvicorn main:app
+```
 
-Every module returns the same shape: `{"score", "label", "details",
-"feedback"}`. Keep that stable even as the internals change — it's what
-the frontend renders as a meter strip per parameter.
+Open http://127.0.0.1:8000, upload a video and wait for the report (about 1 to 2 minutes for a
+3-minute video on a laptop CPU).
 
-## What's real right now vs. stubbed
-| Piece | Status |
-|---|---|
-| Video upload, size/type validation | Real |
-| Audio extraction (ffmpeg) | Real |
-| Frame sampling (OpenCV) | Real |
-| Posture / expression scores | **Stub** — random numbers |
-| Transcript | **Stub** — fixed fake sentence |
-| WPM / filler count | Real calculation, but on stub transcript |
-| Grammar / vocabulary | **Stub** — random numbers |
-| Content score (Ollama) | **Stub** — not yet calling Ollama |
-| Session storage | **Stub** — in-memory, resets on restart |
+Health check: http://127.0.0.1:8000/api/health should show `ffmpeg`, `ffprobe`, `ollama` and `db` all `true`.
 
-Swapping each "Stub" row to real only requires editing that one module —
-this is deliberate, so B, C, and D can all work in parallel starting today.
+Optional settings (set before starting the server):
+
+- `WHISPER_MODEL=tiny.en` faster, less accurate (or `small.en` slower, more accurate)
+- `OLLAMA_MODEL=...` use a different Ollama model
+- `MAX_FRAMES=30` fewer video frames for the vision step
+
+## Public link (no localhost)
+
+The free Cloudflare quick tunnel gives a public address that reaches the laptop running the app.
+Keep both windows open.
+
+```
+# window 1
+uvicorn main:app
+# window 2
+cloudflared tunnel --url http://127.0.0.1:8000
+```
+
+Open the `https://....trycloudflare.com` address that cloudflared prints. The address changes each
+time the tunnel restarts, and it stops working when the laptop or server is off.
+
+## Testing
+
+- `python run_tests.py test_videos --manifest test_videos.csv` runs every test video through the
+  full pipeline and marks PASS or FAIL against what each video should show. Results are saved to
+  `test_results.csv` and `test_reports/`.
+- `python calibrate_vision.py <folder>` shows the raw posture and expression measurements.
+- `python calibrate_tone.py <folder>` shows the raw tone measurements and writes `tone_results.csv`.
+
+Latest run: 10 videos, 6 PASS and 4 FAIL. The silent video is rejected with "No audio speech
+detected". The failures are explained under Limitations.
+
+## Folder layout
+
+```
+main.py                   server, extraction (ffmpeg, OpenCV), wiring of all modules
+db.py                     SQLite session storage and history
+modules/
+  vision.py               posture and expression (MediaPipe)
+  audio.py                speech to text, delivery metrics
+  language.py             grammar and vocabulary
+  prosody.py              tone from the audio
+  content.py              content scoring with Ollama
+static/index.html         the dashboard (one file, no external libraries)
+run_tests.py              end-to-end test runner
+calibrate_vision.py       vision measurement viewer
+calibrate_tone.py         tone measurement viewer
+test_videos.csv           what each test video should show
+```
+
+Every module returns `{"score", "label", "details", "feedback"}`.
+
+## Limitations
+
+- **Content scores vary** by about 20 points between runs, because phi3:mini is a small model.
+- **Whisper tends to drop "um" and "uh"**, so filler words are undercounted (the filler-heavy test video scored delivery 64, expected under 55).
+- **Posture averages over the whole video**, so swaying or slouching for part of it is diluted (the swaying test video scored posture 83, expected under 55).
+- **Wide shots and edited clips** make face detection unreliable, so expression can be 0 on stage footage. Webcam recordings are fairer.
+- **Eye contact is an estimate** from head direction and iris position, not a measurement.
+- **Privacy:** videos and audio are processed on the local machine, and the uploaded video and audio are deleted after processing. The one exception is grammar checking: if no LanguageTool server runs at `localhost:8081`, the transcript text (not the video) is sent to the free public LanguageTool server. If it cannot be reached, the language score is capped at 75 and marked unchecked.
+- **Tone thresholds** were set from 12 clips of 4 people and are a first calibration. Deliberate uptalk was not detected reliably. Very noisy audio, or fewer than 8 recognised words, is left out of tone instead of scored.
+- **Thresholds have not been compared with human raters.**
+- **English only.** Dzongkha was scoped out because free Dzongkha speech and language tools are limited.
+
+## Team
+
+- Member A: backend, integration, testing
+- Member B: vision (posture, expression)
+- Member C: speech, language, tone, content
+- Member D: database, dashboard, documentation

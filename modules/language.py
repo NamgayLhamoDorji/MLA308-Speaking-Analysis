@@ -185,7 +185,7 @@ def analyze_grammar_and_vocab(transcript: dict) -> dict:
         feedback_bits.append("vary your vocabulary more")
     if vocab["overused_words"]:
         top = next(iter(vocab["overused_words"]))
-        feedback_bits.append(f"you repeated \"{top}\" often — try synonyms")
+        feedback_bits.append(f"use synonyms for \"{top}\" (you repeated it often)")
 
     feedback = (
         "Clear, accurate language with good variety."
