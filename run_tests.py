@@ -37,12 +37,12 @@ import sys
 import time
 from pathlib import Path
 
-PARAMS = ["content", "delivery", "posture", "expression", "language"]
+PARAMS = ["content", "delivery", "tone", "posture", "expression", "language"]
 VIDEO_EXTS = {".mp4", ".mov", ".webm", ".avi", ".mkv"}
 STRONG, WEAK = 75, 55                       # same cut-offs as the dashboard and rubric
 
 # Keep in sync with WEIGHTS in static/index.html (the overall result).
-OVERALL_WEIGHTS = {"content": 0.25, "delivery": 0.25, "language": 0.20, "expression": 0.15, "posture": 0.15}
+OVERALL_WEIGHTS = {"content": 0.25, "delivery": 0.20, "tone": 0.15, "posture": 0.10, "expression": 0.15, "language": 0.15}
 
 
 def overall_score(scores):
@@ -100,7 +100,7 @@ def load_manifest(path):
 
 def analyze_video(path, main):
     """Same steps as main.analyze(), minus saving to the database."""
-    from modules import audio, content, language, vision
+    from modules import audio, content, language, prosody, vision
 
     wav = main.UPLOAD_DIR / f"test_{path.stem}.wav"
     try:
@@ -113,13 +113,14 @@ def analyze_video(path, main):
         transcript = audio.transcribe(wav)
         delivery = audio.compute_delivery_metrics(transcript, duration)
         lang = language.analyze_grammar_and_vocab(transcript)
+        tone = prosody.analyze_prosody(wav, transcript)
         cont = content.score_content(transcript)
     finally:
         wav.unlink(missing_ok=True)
 
     return {
         "duration_seconds": duration,
-        "parameters": {"content": cont, "delivery": delivery, "posture": posture,
+        "parameters": {"content": cont, "delivery": delivery, "tone": tone, "posture": posture,
                        "expression": expression, "language": lang},
         "transcript": transcript["text"],
     }
