@@ -49,10 +49,17 @@ import numpy as np
 
 POSTURE_BANDS = {
     #  metric        unit                              full   zero   weight
-    "tilt":       {"full": 3.0,  "zero": 15.0, "weight": 0.25},   # degrees from horizontal
-    "off_centre": {"full": 10.0, "zero": 60.0, "weight": 0.20},   # % of half the frame width
-    "sway":       {"full": 2.0,  "zero": 9.0,  "weight": 0.30},   # % of frame (spread of shoulder midpoint)
-    "in_frame":   {"full": 95.0, "zero": 50.0, "weight": 0.25},   # % of frames with both shoulders found
+    # Tightened after webcam clips of slouching and swaying both scored ~100.
+    # "slouch" is new: head height above the shoulder line, divided by shoulder
+    # width. It drops when someone hunches. Its numbers are STARTING values:
+    # calibrate them with calibrate_vision.py on an upright clip and a slouched clip.
+    # Calibrated on webcam clips: upright head_ratio 0.60 / sway 0.29, slouched head_ratio 0.31,
+    # swaying sway 2.3.
+    "tilt":       {"full": 2.0,  "zero": 8.0,  "weight": 0.15},   # degrees from horizontal
+    "off_centre": {"full": 8.0,  "zero": 40.0, "weight": 0.15},   # % of half the frame width
+    "sway":       {"full": 0.5,  "zero": 2.5,  "weight": 0.35},   # % of frame (spread of shoulder midpoint)
+    "slouch":     {"full": 0.55, "zero": 0.35, "weight": 0.25},   # head height / shoulder width
+    "in_frame":   {"full": 95.0, "zero": 70.0, "weight": 0.10},   # % of frames with both shoulders found
 }
 
 EXPRESSION_BANDS = {
@@ -62,6 +69,13 @@ EXPRESSION_BANDS = {
     "eyes_open":      {"full": 92.0, "zero": 65.0, "weight": 0.10},  # % of frames eye height >= 60% of own wide-open
     "face_visible":   {"full": 90.0, "zero": 50.0, "weight": 0.10},  # % of frames with a face found
 }
+
+# Weakest-link blend. A plain weighted average lets one serious flaw (hunched, or
+# swaying the whole time) hide behind perfect scores on the other metrics, so a
+# clearly bad clip still scored 80+. The final posture score is
+#   (1 - WEIGHT) * weighted_average + WEIGHT * (lowest sub-score).
+# Set to 0.0 to go back to the plain weighted average the rubric describes.
+POSTURE_WEAKEST_LINK_WEIGHT = 0.4
 
 # Other measurement settings (also tunable)
 SHOULDER_VISIBILITY_MIN = 0.5      # MediaPipe "visibility" a shoulder needs to count as seen
@@ -86,6 +100,7 @@ POSE_TASK_URL = ("https://storage.googleapis.com/mediapipe-models/pose_landmarke
 
 # MediaPipe Pose landmark indices (33-point body model)
 L_SHOULDER, R_SHOULDER = 11, 12
+NOSE = 0
 
 # MediaPipe face landmark indices (478-point mesh with irises)
 MOUTH_LEFT, MOUTH_RIGHT = 61, 291
@@ -183,8 +198,8 @@ def _get_pose_backend():
     return _pose_backend
 
 
-def _detect_shoulders(rgb):
-    """((x, y, visibility) left, (x, y, visibility) right) with x, y in 0-1,
+def _detect_pose(rgb):
+    """{"l": (x, y, vis), "r": (x, y, vis), "nose": (x, y, vis)} with x, y in 0-1,
     or None if no body was found."""
     kind, detector = _get_pose_backend()
     with _pose_lock:
@@ -197,8 +212,15 @@ def _detect_shoulders(rgb):
             lms = res.pose_landmarks[0] if res.pose_landmarks else None
     if lms is None:
         return None
-    l, r = lms[L_SHOULDER], lms[R_SHOULDER]
-    return (l.x, l.y, l.visibility), (r.x, r.y, r.visibility)
+    l, r, n = lms[L_SHOULDER], lms[R_SHOULDER], lms[NOSE]
+    return {"l": (l.x, l.y, l.visibility), "r": (r.x, r.y, r.visibility),
+            "nose": (n.x, n.y, n.visibility)}
+
+
+def _detect_shoulders(rgb):
+    """((x, y, visibility) left, (x, y, visibility) right), or None. Kept for older callers."""
+    pose = _detect_pose(rgb)
+    return None if pose is None else (pose["l"], pose["r"])
 
 
 def _get_face_backend():
@@ -245,16 +267,17 @@ def measure_posture(frames) -> dict:
     """Raw posture measurements (no scoring)."""
     total = len(frames)
     raw = {"frames_analyzed": total, "frames_with_person": 0, "in_frame_pct": 0.0,
-           "tilt_deg": None, "off_centre_pct": None, "sway_pct": None, "shoulder_width_pct": None}
+           "tilt_deg": None, "off_centre_pct": None, "sway_pct": None, "shoulder_width_pct": None,
+           "head_ratio": None}
     if total == 0:
         return raw
 
-    tilts, offsets, mids, widths = [], [], [], []
+    tilts, offsets, mids, widths, heads = [], [], [], [], []
     for frame in frames:
-        found = _detect_shoulders(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-        if found is None:
+        pose = _detect_pose(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        if pose is None:
             continue
-        (lx, ly, lv), (rx, ry, rv) = found
+        (lx, ly, lv), (rx, ry, rv) = pose["l"], pose["r"]
         if lv < SHOULDER_VISIBILITY_MIN or rv < SHOULDER_VISIBILITY_MIN:
             continue
         fh, fw = frame.shape[:2]
@@ -275,6 +298,12 @@ def measure_posture(frames) -> dict:
         mids.append((mid_x / fw, mid_y / fh))
         widths.append(abs(dx) / fw * 100)
 
+        # Slouch: how far the nose sits above the shoulder line, in shoulder widths.
+        # Hunching drops the head toward the shoulders, so this number gets smaller.
+        nx, ny, nv = pose["nose"]
+        if nv >= SHOULDER_VISIBILITY_MIN and abs(dx) > 1e-3:
+            heads.append((mid_y - ny * fh) / abs(dx))
+
     n = len(tilts)
     raw["frames_with_person"] = n
     raw["in_frame_pct"] = round(n / total * 100, 1)
@@ -285,7 +314,8 @@ def measure_posture(frames) -> dict:
     sway = (float(np.std(xs)) + float(np.std(ys))) / 2 * 100 if n > 1 else 0.0
 
     raw.update(tilt_deg=float(np.mean(tilts)), off_centre_pct=float(np.mean(offsets)),
-               sway_pct=sway, shoulder_width_pct=float(np.median(widths)))
+               sway_pct=sway, shoulder_width_pct=float(np.median(widths)),
+               head_ratio=float(np.median(heads)) if heads else None)
     return raw
 
 
@@ -293,8 +323,19 @@ def score_posture(raw: dict):
     metrics = {
         "tilt": raw["tilt_deg"], "off_centre": raw["off_centre_pct"],
         "sway": raw["sway_pct"], "in_frame": raw["in_frame_pct"],
+        "slouch": raw.get("head_ratio"),
     }
-    return _combine(metrics, POSTURE_BANDS)
+    bands = POSTURE_BANDS
+    if metrics["slouch"] is None:                       # nose not seen: leave slouch out, rescale the rest
+        bands = {k: dict(v) for k, v in POSTURE_BANDS.items() if k != "slouch"}
+        total = sum(b["weight"] for b in bands.values())
+        for b in bands.values():
+            b["weight"] /= total
+    score, subs = _combine(metrics, bands)
+    w = POSTURE_WEAKEST_LINK_WEIGHT
+    if w > 0 and subs:
+        score = round((1 - w) * score + w * min(subs.values()), 1)
+    return score, subs
 
 
 def analyze_posture(frames) -> dict:
@@ -319,6 +360,8 @@ def analyze_posture(frames) -> dict:
         tips.append("stay centred in the frame")
     if subs["sway"] < 70:
         tips.append("reduce swaying or pacing while you speak")
+    if subs.get("slouch") is not None and subs["slouch"] < 70:
+        tips.append("sit or stand tall: lift your chest and head so your neck looks longer")
     if subs["in_frame"] < 70:
         tips.append("stay fully in frame throughout")
     if raw["shoulder_width_pct"] < SHOULDERS_TOO_SMALL_PCT:
@@ -337,6 +380,7 @@ def analyze_posture(frames) -> dict:
             "off_centre_avg_pct": round(raw["off_centre_pct"], 1),
             "sway_pct": round(raw["sway_pct"], 1),
             "shoulder_width_pct_of_frame": round(raw["shoulder_width_pct"], 1),
+            "head_ratio": None if raw.get("head_ratio") is None else round(raw["head_ratio"], 2),
             "sub_scores": subs,
         },
         "feedback": "Steady, level and well framed — nice posture throughout." if not tips

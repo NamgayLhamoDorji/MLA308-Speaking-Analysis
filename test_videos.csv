@@ -10,3 +10,6 @@ video,tests,expect_strong,expect_weak,expect_error
 06b_flat_looking_at_notes.mp4,"Flat face; keeps looking down or away from the camera",,expression,
 07_poor_light_or_no_face.mp4,"Very dark or face turned away (edge case)",,expression,
 08_silent_no_audio.mp4,"Video with the microphone muted (edge case)",,,No audio
+   02b_slouched_webcam.mp4,"Webcam clip: slouched and leaning to one side",,posture,
+   03b_swaying_webcam.mp4,"Webcam clip: swaying side to side while talking",,posture,
+   01d_upright_webcam.mp4,"Webcam clip: sitting upright, centred, still",posture,,

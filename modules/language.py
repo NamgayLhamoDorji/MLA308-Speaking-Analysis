@@ -22,6 +22,7 @@ Vocabulary : MATTR (moving-average type-token ratio, window 50) — unlike a
 
 import os
 import re
+import time
 
 import requests
 
@@ -90,23 +91,36 @@ def _vocab_stats(tokens):
 # Grammar (LanguageTool)
 # ---------------------------------------------------------------------------
 
+LT_RETRIES = 2           # attempts per server before moving on to the next one
+
+
 def _call_languagetool(text):
-    """Return (matches, url_used) or (None, None) if no server responded."""
+    """Return (matches, url_used) or (None, None) if no server responded.
+
+    Each server gets LT_RETRIES attempts (the free public endpoint sometimes
+    answers 429/5xx or times out once and works a second later), so one
+    hiccup no longer forces the 75-point cap.
+    """
     for url in LT_URLS:
-        try:
-            r = requests.post(
-                url,
-                data={
-                    "text": text[:LT_MAX_CHARS],
-                    "language": "en-US",
-                    "disabledCategories": LT_DISABLED_CATEGORIES,
-                },
-                timeout=LT_TIMEOUT_S,
-            )
-            if r.status_code == 200:
-                return r.json().get("matches", []), url
-        except requests.RequestException:
-            continue
+        for attempt in range(LT_RETRIES):
+            try:
+                r = requests.post(
+                    url,
+                    data={
+                        "text": text[:LT_MAX_CHARS],
+                        "language": "en-US",
+                        "disabledCategories": LT_DISABLED_CATEGORIES,
+                    },
+                    timeout=LT_TIMEOUT_S,
+                )
+                if r.status_code == 200:
+                    return r.json().get("matches", []), url
+                if r.status_code not in (429, 500, 502, 503, 504):
+                    break                      # a real client error: retrying will not help
+            except (requests.RequestException, ValueError):
+                pass
+            if attempt + 1 < LT_RETRIES:
+                time.sleep(1.5)
     return None, None
 
 
@@ -175,6 +189,7 @@ def analyze_grammar_and_vocab(transcript: dict) -> dict:
         score = round(min(75.0, _clamp(vocab_score - 10 * len(repeats))), 1)
         details.update({
             "accidental_repeats": len(repeats),
+            "languagetool_source": "unreachable (score capped at 75)",
             "note": "LanguageTool was unreachable, so only vocabulary and word-repeat checks were run.",
             "sub_scores": {"vocabulary": round(vocab_score, 1)},
         })

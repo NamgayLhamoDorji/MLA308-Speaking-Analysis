@@ -16,7 +16,8 @@ What it measures (no new packages: only numpy and the standard library):
                              baseline (stressed words).
     loudness_range_db        spread of loudness (90th - 10th percentile) on voiced frames.
     pace_variation_cv        how much speaking speed changes between 5-second windows
-                             (coefficient of variation of words per second).
+                             (coefficient of variation of words per SPEAKING second;
+                             pauses are excluded so they do not inflate it).
     statements_ending_in_fall_pct
                              % of statements whose last ~0.5 s of pitch falls (sounds sure).
     uptalk_pct               % of statements that end with rising pitch (sounds unsure).
@@ -67,6 +68,8 @@ FALL_ST, RISE_ST = -0.5, 1.5     # end-of-sentence change that counts as a fall 
 MIN_VOICED_S = 5.0
 MIN_STATEMENTS = 3
 PACE_WINDOW_S = 5.0
+PAUSE_GAP_S = 0.4                # a silence longer than this between words is a pause
+PACE_MIN_SPEAKING_S = 2.0        # ignore pace windows with less speech than this
 
 
 # ---------------------------------------------------------------------------
@@ -210,20 +213,42 @@ def _emphasis_peaks(st):
     return peaks
 
 
+def _speech_segments(words):
+    """Merge words into continuous speech stretches. A gap longer than PAUSE_GAP_S
+    is a pause and is NOT part of any stretch, so it can never count as 'slow speech'."""
+    segs = []
+    for w in words:
+        a, b = float(w["start"]), float(w["end"])
+        if segs and a - segs[-1][1] <= PAUSE_GAP_S:
+            segs[-1][1] = max(segs[-1][1], b)
+        else:
+            segs.append([a, b])
+    return segs
+
+
 def _pace_variation(words):
+    """How much speaking speed changes between 5-second windows (coefficient of variation).
+
+    Speed in a window = words / SPEAKING time in that window (pauses removed).
+    Before, it was words / 5 s, so a long pause made a window look 'slow' and the
+    variation read far too high. Windows that are mostly pause are skipped.
+    """
     if len(words) < 10:
         return None
     t0, t1 = words[0]["start"], words[-1]["end"]
     if t1 - t0 < 2 * PACE_WINDOW_S:
         return None
-    edges = np.arange(t0, t1, PACE_WINDOW_S)
+    segs = _speech_segments(words)
     rates = []
-    for a in edges:
+    for a in np.arange(t0, t1, PACE_WINDOW_S):
         b = a + PACE_WINDOW_S
         if b > t1 + 1e-6 and (t1 - a) < PACE_WINDOW_S * 0.6:
             continue
+        speaking = sum(max(0.0, min(e, b) - max(s, a)) for s, e in segs)
+        if speaking < PACE_MIN_SPEAKING_S:
+            continue                                   # mostly silence: no reliable speed
         cnt = sum(1 for w in words if a <= w["start"] < b)
-        rates.append(cnt / PACE_WINDOW_S)
+        rates.append(cnt / speaking)
     rates = np.array(rates)
     if len(rates) < 2 or rates.mean() < 1e-6:
         return None
