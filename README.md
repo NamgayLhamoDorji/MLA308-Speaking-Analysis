@@ -13,7 +13,7 @@ Everything uses free tools. No paid APIs are used.
 | Content | Structure, clarity, evidence, relevance | Local Ollama model (phi3:mini) rates the transcript against our rubric; our code computes the score |
 | Delivery | Pace, filler words, pauses | From the Whisper transcript and word timings |
 | Tone | Pitch range, pace variation, emphasis, how statements end | Pitch tracked from the audio with numpy, measured relative to the speaker |
-| Posture | Shoulder tilt, off-centre, sway, in frame | MediaPipe Pose on about 60 sampled frames |
+| Posture | Shoulder tilt, off-centre, sway, slouch, in frame (weakest-link blend) | MediaPipe Pose on about 60 sampled frames |
 | Expression | Expressiveness, eye contact, smiles, eyes open, face visible | MediaPipe face landmarks |
 | Language | Grammar and vocabulary variety | LanguageTool and our own vocabulary measure |
 
@@ -83,7 +83,7 @@ time the tunnel restarts, and it stops working when the laptop or server is off.
 - `python calibrate_vision.py <folder>` shows the raw posture and expression measurements.
 - `python calibrate_tone.py <folder>` shows the raw tone measurements and writes `tone_results.csv`.
 
-Latest run: 10 videos, 6 PASS and 4 FAIL. The silent video is rejected with "No audio speech
+Latest run: 13 videos, 10 PASS and 3 FAIL. The silent video is rejected with "No audio speech
 detected". The failures are explained under Limitations.
 
 ## Folder layout
@@ -110,7 +110,7 @@ Every module returns `{"score", "label", "details", "feedback"}`.
 
 - **Content scores vary** by about 20 points between runs, because phi3:mini is a small model.
 - **Whisper tends to drop "um" and "uh"**, so filler words are undercounted (the filler-heavy test video scored delivery 64, expected under 55).
-- **Posture averages over the whole video**, so swaying or slouching for part of it is diluted (the swaying test video scored posture 83, expected under 55).
+- **Posture is calibrated for webcam recordings** (upright 100, slouched 30, swaying 44 on our webcam clips). Good speakers on wide, edited YouTube footage can score low (27 to 38) because the framing differs.
 - **Wide shots and edited clips** make face detection unreliable, so expression can be 0 on stage footage. Webcam recordings are fairer.
 - **Eye contact is an estimate** from head direction and iris position, not a measurement.
 - **Privacy:** videos and audio are processed on the local machine, and the uploaded video and audio are deleted after processing. The one exception is grammar checking: if no LanguageTool server runs at `localhost:8081`, the transcript text (not the video) is sent to the free public LanguageTool server. If it cannot be reached, the language score is capped at 75 and marked unchecked.
