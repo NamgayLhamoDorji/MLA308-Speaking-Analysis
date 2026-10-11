@@ -31,7 +31,7 @@ from modules import vision
 
 VIDEO_EXTS = {".mp4", ".mov", ".webm", ".avi", ".mkv"}
 
-POSTURE_RAW = ["frames_with_person", "in_frame_pct", "tilt_deg", "off_centre_pct", "sway_pct", "shoulder_width_pct", "head_ratio"]
+POSTURE_RAW = ["frames_with_person", "in_frame_pct", "tilt_deg", "off_centre_pct", "sway_pct", "shoulder_width_pct","head_ratio"]
 EXPRESSION_RAW = ["frames_with_face", "face_visible_pct", "expressiveness", "eye_contact_pct",
                   "smile_moments_pct", "eyes_open_pct", "avg_yaw"]
 
@@ -169,3 +169,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
