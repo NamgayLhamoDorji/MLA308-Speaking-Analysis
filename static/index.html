@@ -33,6 +33,9 @@
 
   /* ---------- top bar ---------- */
   .topbar { background: var(--surface); border-bottom: 1px solid var(--border); }
+  .profile { display: flex; align-items: center; gap: 8px; font-size: .9rem; color: var(--muted, #667); }
+  .profile input { width: 130px; padding: 6px 9px; border: 1px solid var(--border); border-radius: 8px; font: inherit; background: var(--surface); color: inherit; }
+  @media (max-width: 640px) { .topbar .inner { flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; } .profile { width: 100%; } .profile input { flex: 1; } }
   .topbar .inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 60px; }
   .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.05rem; letter-spacing: -.01em; white-space: nowrap; }
   .brand svg { width: 26px; height: 26px; color: var(--accent); }
@@ -179,6 +182,7 @@
       <button role="tab" id="tab-analyze" aria-selected="true" data-view="analyze">Analyze</button>
       <button role="tab" id="tab-progress" aria-selected="false" data-view="progress">My progress</button>
     </nav>
+    <label class="profile" title="Your history is kept under this name. No password.">Name <input id="profileName" type="text" maxlength="30" placeholder="Guest" autocomplete="off"></label>
   </div>
 </div>
 
@@ -238,6 +242,7 @@
         <div class="meta" id="report-meta"></div>
         <div class="overall" id="overall" hidden></div>
         <div class="summary" id="summary" hidden></div>
+        <div class="summary" id="progress-note" hidden></div>
         <div class="plist" id="param-grid"></div>
       </div>
       <div class="panel">
@@ -308,6 +313,54 @@
     PARAMS.forEach(p => { const s = scoreOf(report, p.key); if (s !== null) { sum += s * WEIGHTS[p.key]; w += WEIGHTS[p.key]; } });
     return w > 0 ? sum / w : null;
   }
+  // ---------- progress sentences (compare two sessions) ----------
+  const CHANGE_MIN = 3;   // a change smaller than this many points counts as "steady"
+  function progressLines(cur, prev) {
+    const rows = ALL.map(p => {
+      const a = scoreOf(cur, p.key), b = scoreOf(prev, p.key);
+      return { p, a, b, d: a !== null && b !== null ? Math.round(a) - Math.round(b) : null };
+    });
+    const overall = rows.find(r => r.p.key === 'overall');
+    const skills = rows.filter(r => r.p.key !== 'overall' && r.d !== null);
+    if (!overall || overall.d === null) return [];
+    const lines = [];
+    if (Math.abs(overall.d) < CHANGE_MIN) lines.push(`Your overall score is about the same (${Math.round(overall.b)} to ${Math.round(overall.a)}).`);
+    else if (overall.d > 0) lines.push(`Your overall score went up by ${overall.d} (from ${Math.round(overall.b)} to ${Math.round(overall.a)}).`);
+    else lines.push(`Your overall score went down by ${Math.abs(overall.d)} (from ${Math.round(overall.b)} to ${Math.round(overall.a)}).`);
+    const better = skills.filter(r => r.d >= CHANGE_MIN).sort((x, y) => y.d - x.d);
+    const worse = skills.filter(r => r.d <= -CHANGE_MIN).sort((x, y) => x.d - y.d);
+    if (better.length) lines.push('Improved: ' + better.map(r => `${r.p.title} (+${r.d})`).join(', ') + '.');
+    if (worse.length) lines.push('Needs attention: ' + worse.map(r => `${r.p.title} (${r.d})`).join(', ') + '.');
+    if (!better.length && !worse.length) lines.push('Your individual skills are steady compared with the session before.');
+    const missing = rows.filter(r => r.p.key !== 'overall' && r.d === null).map(r => r.p.title);
+    if (missing.length) lines.push('Not compared (no score in one of the sessions): ' + missing.join(', ') + '.');
+    return lines;
+  }
+  function fillNote(box, title, lines) {
+    box.textContent = '';
+    if (!lines.length) { box.hidden = true; return; }
+    box.append(el('p', {}, el('b', { text: title })));
+    lines.forEach(t => box.append(el('p', { text: t })));
+    box.hidden = false;
+  }
+  // After a new analysis: fetch the latest two saved sessions and compare them.
+  const profileBox = $('profileName');
+  function getProfile() { return (profileBox.value || '').trim() || 'Guest'; }
+  try { profileBox.value = localStorage.getItem('profileName') || ''; } catch (e) {}
+  profileBox.addEventListener('change', () => {
+    try { localStorage.setItem('profileName', profileBox.value.trim()); } catch (e) {}
+    if ($('view-progress') && !$('view-progress').hidden) loadHistory();
+  });
+
+  async function showProgressNote() {
+    try {
+      const res = await fetch('/api/history?limit=2&profile=' + encodeURIComponent(getProfile()));
+      if (!res.ok) return;
+      const h = await res.json();
+      if (Array.isArray(h) && h.length >= 2) fillNote($('progress-note'), 'Compared with the session before it', progressLines(h[0], h[1]));
+    } catch (_) { /* the note is optional */ }
+  }
+
   const overallLabel = s => s === null ? 'No result' : s >= 75 ? 'Strong' : s >= 55 ? 'Developing' : 'Needs work';
   const fmtDate = iso => {
     const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
@@ -450,6 +503,7 @@
 
     const fd = new FormData();
     fd.append('file', selected, selected.name);
+    fd.append('profile', getProfile());
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/analyze');
 
@@ -479,6 +533,7 @@
       if (xhr.status >= 200 && xhr.status < 300 && data && data.parameters) {
         $('progress-card').hidden = true;
         renderReport(data);
+        showProgressNote();
         $('results').scrollIntoView({ behavior: 'smooth' });
       } else {
         const detail = data && data.detail ? data.detail : (xhr.responseText || '').slice(0, 400);
@@ -594,6 +649,7 @@
     if (isNum(data.processing_time_seconds)) add('Analysed in', `${Math.round(data.processing_time_seconds)} seconds`);
     if (data.created_at) add('Date', fmtDate(data.created_at));
 
+    $('progress-note').hidden = true;
     renderOverall(data);
     renderSummary(data);
     const list = $('param-grid'); list.textContent = '';
@@ -614,7 +670,7 @@
   async function loadHistory() {
     loadError = '';
     try {
-      const res = await fetch('/api/history?limit=50');
+      const res = await fetch('/api/history?limit=50&profile=' + encodeURIComponent(getProfile()));
       if (!res.ok) throw new Error('HTTP ' + res.status);
       history = await res.json();
       if (!Array.isArray(history)) throw new Error('unexpected response');
@@ -644,6 +700,9 @@
         el('div', { class: 'dchg tone-' + cls, text: txt })));
     });
     box.append(wrap);
+    const note = el('div', { class: 'summary', style: 'margin-top:16px' });
+    box.append(note);
+    fillNote(note, 'What changed', progressLines(cur, prev));
   }
 
   function renderTable() {

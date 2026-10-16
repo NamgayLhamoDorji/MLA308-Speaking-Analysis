@@ -35,7 +35,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -206,7 +206,7 @@ def serve_frontend():
 # CPU work; FastAPI runs plain-def routes in a thread pool, so the server
 # (and /api/health) stays responsive while a video is being analyzed.
 @app.post("/api/analyze")
-def analyze(file: UploadFile = File(...)):
+def analyze(file: UploadFile = File(...), profile: str = Form("")):
     """
     The one endpoint that runs the whole pipeline end-to-end:
 
@@ -284,7 +284,7 @@ def analyze(file: UploadFile = File(...)):
         # Convert numpy types -> plain Python so JSON serialization can't fail
         report = to_native(report)
 
-        db.save_session(session_id, report)
+        db.save_session(session_id, report, db.clean_profile(profile))
         return report
 
     except HTTPException:
@@ -303,9 +303,9 @@ def analyze(file: UploadFile = File(...)):
 
 
 @app.get("/api/history")
-def history(limit: int = 20):
-    """Backs Member D's progress-over-sessions view."""
-    return to_native(db.get_recent_sessions(limit=limit))
+def history(limit: int = 20, profile: str = ""):
+    """Backs Member D's progress-over-sessions view (one profile name at a time)."""
+    return to_native(db.get_recent_sessions(limit=limit, profile=db.clean_profile(profile)))
 
 
 @app.get("/api/health")

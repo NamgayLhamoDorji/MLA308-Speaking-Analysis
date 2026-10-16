@@ -53,8 +53,10 @@ uvicorn main:app
 Open http://127.0.0.1:8000, upload or record a video and wait for the report. It usually takes
 one to a few minutes on a laptop CPU, and the first run is slower while the models load.
 
-Every analysis is saved in `sessions.db` on the machine that runs the app (this file is not in git).
-The "My progress" tab reads it to show score changes between sessions.
+Every analysis is saved in `sessions.db`, under the profile name typed in the top bar ("Guest" if empty), on the machine that runs the app (this file is not in git).
+The "My progress" tab reads it to show a trend chart, a comparison with the previous session, and short sentences
+such as "Improved: Delivery (+16)" or "Needs attention: Posture (-8)". After each new analysis, the report also shows
+how it compares with the session before it. A change smaller than 3 points is treated as steady.
 
 Health check: http://127.0.0.1:8000/api/health should show `ffmpeg`, `ffprobe`, `ollama` and `db` all `true`.
 
@@ -123,6 +125,7 @@ Every module returns `{"score", "label", "details", "feedback"}`.
 - **Eye contact is an estimate** from head direction and iris position, not a measurement.
 - **Privacy:** videos and audio are analysed on the local machine, and the uploaded video and audio are deleted after processing. When the Cloudflare tunnel is used, the upload passes through Cloudflare's network on its way to the laptop. For grammar checking, if no LanguageTool server runs at `localhost:8081`, the transcript text (not the video) is sent to the free public LanguageTool server. If it cannot be reached, the language score is capped at 75 and marked unchecked.
 - **Tone thresholds** were set from a small set of clips from 4 people and are a first calibration. Deliberate uptalk was not detected reliably. Very noisy audio, or fewer than 8 recognised words, is left out of tone instead of scored.
+- **Profiles are names, not accounts.** Type a name in the top bar and your history is kept under it, so two people can track their own progress. There is no password, so anyone can type someone else's name. Names are cleaned (letters, digits, space, `_ - .`, max 30 characters) and are not case-sensitive. With no name, sessions go under "Guest".
 - **Thresholds have not been compared with human raters.**
 - **English only.** Dzongkha was scoped out because free Dzongkha speech and language tools are limited.
 
