@@ -186,6 +186,17 @@ def get_video_duration_seconds(video_path: Path) -> float:
         return 0.0
 
 
+def get_wav_duration_seconds(wav_path: Path) -> float:
+    """Length of the extracted WAV. Used when ffprobe cannot read the duration of
+    a browser-recorded webm (it reports N/A), which used to show up as 0 seconds."""
+    try:
+        import wave
+        with wave.open(str(wav_path), "rb") as w:
+            return round(w.getnframes() / float(w.getframerate()), 2)
+    except Exception:
+        return 0.0
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -242,6 +253,8 @@ def analyze(file: UploadFile = File(...), profile: str = Form("")):
 
         duration_s = get_video_duration_seconds(video_path)
         extract_audio(video_path, audio_path)
+        if duration_s <= 0:
+            duration_s = get_wav_duration_seconds(audio_path)
         frames = sample_frames(video_path)
 
         # --- Member B: computer vision -------------------------------
