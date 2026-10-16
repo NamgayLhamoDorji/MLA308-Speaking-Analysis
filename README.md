@@ -1,10 +1,9 @@
 # Speaking Evaluation & Coaching Platform (MLA308)
 
-A website where a user uploads a video of themselves speaking. The system scores the
-speech on six separate parameters, gives feedback for each one, saves every session,
-and shows progress over time so the speaker can see whether they are improving.
+A website where a user uploads or records a video of themselves speaking. The system scores the
+speech on six separate parameters, gives feedback for each one, saves every session, and shows
+progress over time so the speaker can see whether they are improving.
 
-Everything uses free tools. No paid APIs are used.
 
 ## The six scores
 
@@ -20,6 +19,8 @@ Everything uses free tools. No paid APIs are used.
 Labels everywhere: Strong is 75 or more, Developing is 55 to 74, Needs work is under 55.
 The dashboard also shows an overall score out of 100 (content 25%, delivery 20%, tone 15%,
 expression 15%, language 15%, posture 10%). The six scores stay separate as the main result.
+If a score cannot be measured (for example tone on very noisy audio), it is shown as "—" and left
+out of the overall instead of being guessed.
 
 ## Tools used
 
@@ -49,8 +50,11 @@ plain JavaScript (dashboard), Cloudflare quick tunnel (public link).
 uvicorn main:app
 ```
 
-Open http://127.0.0.1:8000, upload a video and wait for the report (about 1 to 2 minutes for a
-3-minute video on a laptop CPU).
+Open http://127.0.0.1:8000, upload or record a video and wait for the report. It usually takes
+one to a few minutes on a laptop CPU, and the first run is slower while the models load.
+
+Every analysis is saved in `sessions.db` on the machine that runs the app (this file is not in git).
+The "My progress" tab reads it to show score changes between sessions.
 
 Health check: http://127.0.0.1:8000/api/health should show `ffmpeg`, `ffprobe`, `ollama` and `db` all `true`.
 
@@ -72,6 +76,9 @@ uvicorn main:app
 cloudflared tunnel --url http://127.0.0.1:8000
 ```
 
+On Windows, if `cloudflared.exe` is in the project folder, run
+`.\cloudflared.exe tunnel --url http://127.0.0.1:8000` instead.
+
 Open the `https://....trycloudflare.com` address that cloudflared prints. The address changes each
 time the tunnel restarts, and it stops working when the laptop or server is off.
 
@@ -79,7 +86,7 @@ time the tunnel restarts, and it stops working when the laptop or server is off.
 
 - `python run_tests.py test_videos --manifest test_videos.csv` runs every test video through the
   full pipeline and marks PASS or FAIL against what each video should show. Results are saved to
-  `test_results.csv` and `test_reports/`.
+  `test_results.csv` and `test_reports/`. It does not touch the database.
 - `python calibrate_vision.py <folder>` shows the raw posture and expression measurements.
 - `python calibrate_tone.py <folder>` shows the raw tone measurements and writes `tone_results.csv`.
 
@@ -102,6 +109,7 @@ run_tests.py              end-to-end test runner
 calibrate_vision.py       vision measurement viewer
 calibrate_tone.py         tone measurement viewer
 test_videos.csv           what each test video should show
+requirements.txt          pinned Python packages
 ```
 
 Every module returns `{"score", "label", "details", "feedback"}`.
@@ -113,8 +121,8 @@ Every module returns `{"score", "label", "details", "feedback"}`.
 - **Posture is calibrated for webcam recordings** (upright 100, slouched 30, swaying 44 on our webcam clips). Good speakers on wide, edited YouTube footage can score low (27 to 38) because the framing differs.
 - **Wide shots and edited clips** make face detection unreliable, so expression can be 0 on stage footage. Webcam recordings are fairer.
 - **Eye contact is an estimate** from head direction and iris position, not a measurement.
-- **Privacy:** videos and audio are processed on the local machine, and the uploaded video and audio are deleted after processing. The one exception is grammar checking: if no LanguageTool server runs at `localhost:8081`, the transcript text (not the video) is sent to the free public LanguageTool server. If it cannot be reached, the language score is capped at 75 and marked unchecked.
-- **Tone thresholds** were set from 12 clips of 4 people and are a first calibration. Deliberate uptalk was not detected reliably. Very noisy audio, or fewer than 8 recognised words, is left out of tone instead of scored.
+- **Privacy:** videos and audio are analysed on the local machine, and the uploaded video and audio are deleted after processing. When the Cloudflare tunnel is used, the upload passes through Cloudflare's network on its way to the laptop. For grammar checking, if no LanguageTool server runs at `localhost:8081`, the transcript text (not the video) is sent to the free public LanguageTool server. If it cannot be reached, the language score is capped at 75 and marked unchecked.
+- **Tone thresholds** were set from a small set of clips from 4 people and are a first calibration. Deliberate uptalk was not detected reliably. Very noisy audio, or fewer than 8 recognised words, is left out of tone instead of scored.
 - **Thresholds have not been compared with human raters.**
 - **English only.** Dzongkha was scoped out because free Dzongkha speech and language tools are limited.
 
